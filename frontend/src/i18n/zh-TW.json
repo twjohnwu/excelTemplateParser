@@ -1,0 +1,79 @@
+{
+  "app": {
+    "title": "Excel 範本轉換",
+    "configBuilder": "專案設定",
+    "batchRunner": "批次轉換",
+    "language": "語言",
+    "theme": { "light": "淺色", "dark": "深色" }
+  },
+  "jobs": {
+    "active": "進行中作業",
+    "panelTitle": "我的作業",
+    "noJobs": "目前沒有作業",
+    "inProgress": "進行中",
+    "completed": "已完成可下載",
+    "viewDetail": "查看詳情",
+    "download": "下載 ZIP",
+    "retry": "重試",
+    "cancel": "取消",
+    "remove": "移除",
+    "etaEstimating": "估算中...",
+    "etaRemaining": "預估剩餘約 {{minutes}} 分 {{seconds}} 秒",
+    "status": {
+      "pending": "等待中",
+      "running": "處理中",
+      "done": "完成",
+      "failed": "失敗",
+      "cancelled": "已取消"
+    },
+    "reconnecting": "連線中…",
+    "downloadGrace": "可重新下載：剩 {{minutes}} 分鐘",
+    "downloadExpired": "下載時效已過"
+  },
+  "config": {
+    "name": "專案名稱",
+    "namePlaceholder": "請輸入專案名稱",
+    "loadExisting": "載入既有專案",
+    "newProject": "建立新專案",
+    "saveAndDownload": "儲存並下載",
+    "downloadCurrent": "下載當前設定檔",
+    "draftRestorePrompt": "您有未完成的設定，是否還原？",
+    "draftRestore": "還原",
+    "draftDiscard": "捨棄",
+    "overwriteConfirm": "專案『{{name}}』已存在，是否覆蓋？",
+    "sourcesPane": "來源",
+    "joinsPane": "Join 關聯",
+    "mappingsPane": "目標欄位映射",
+    "targetTemplate": "目標範本",
+    "uploadDropHint": "拖放檔案或點擊選擇",
+    "addJoin": "新增 Join",
+    "addMapping": "新增映射",
+    "addCondition": "新增條件",
+    "default": "預設值",
+    "sheet": "工作表",
+    "headerRow": "標頭列",
+    "headerRowHint": "點擊任一列設為標頭",
+    "loadMoreRows": "再載入 30 列"
+  },
+  "batch": {
+    "selectConfig": "選擇設定檔",
+    "orUploadJson": "或上傳 JSON",
+    "targetTemplate": "目標範本",
+    "primarySlotHint": "可多檔，每檔產一個輸出",
+    "lookupSlotHint": "單檔，所有 primary 共用",
+    "outputCount": "將產出 {{n}} 份輸出",
+    "start": "開始轉換",
+    "newBatch": "新批次",
+    "lastFilename": "上次：{{name}}"
+  },
+  "errors": {
+    "generic": "發生錯誤，請聯絡管理員",
+    "requestId": "請求 ID：{{id}}",
+    "duplicateConfig": "專案『{{name}}』已存在",
+    "invalidName": "專案名稱僅可含中英文、數字、底線、連字號、空格，長度 1–80"
+  },
+  "mobile": {
+    "title": "請使用桌機",
+    "body": "本工具的設定操作需要較大畫面，建議於桌機或筆電上使用。"
+  }
+}

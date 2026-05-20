@@ -1,0 +1,79 @@
+{
+  "app": {
+    "title": "Excel Template Parser",
+    "configBuilder": "Project Settings",
+    "batchRunner": "Batch Convert",
+    "language": "Language",
+    "theme": { "light": "Light", "dark": "Dark" }
+  },
+  "jobs": {
+    "active": "Active jobs",
+    "panelTitle": "My jobs",
+    "noJobs": "No jobs yet",
+    "inProgress": "In progress",
+    "completed": "Completed, ready to download",
+    "viewDetail": "View",
+    "download": "Download ZIP",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "remove": "Remove",
+    "etaEstimating": "Estimating...",
+    "etaRemaining": "About {{minutes}}m {{seconds}}s remaining",
+    "status": {
+      "pending": "Pending",
+      "running": "Running",
+      "done": "Done",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    },
+    "reconnecting": "Reconnecting…",
+    "downloadGrace": "Re-download available: {{minutes}} min left",
+    "downloadExpired": "Download window expired"
+  },
+  "config": {
+    "name": "Project name",
+    "namePlaceholder": "Enter a project name",
+    "loadExisting": "Load existing project",
+    "newProject": "New project",
+    "saveAndDownload": "Save & Download",
+    "downloadCurrent": "Download current config",
+    "draftRestorePrompt": "You have an unsaved draft. Restore?",
+    "draftRestore": "Restore",
+    "draftDiscard": "Discard",
+    "overwriteConfirm": "Project \"{{name}}\" already exists. Overwrite?",
+    "sourcesPane": "Sources",
+    "joinsPane": "Joins",
+    "mappingsPane": "Target field mappings",
+    "targetTemplate": "Target template",
+    "uploadDropHint": "Drop a file or click to choose",
+    "addJoin": "Add join",
+    "addMapping": "Add mapping",
+    "addCondition": "Add condition",
+    "default": "Default",
+    "sheet": "Sheet",
+    "headerRow": "Header row",
+    "headerRowHint": "Click any row to set as header",
+    "loadMoreRows": "Load 30 more rows"
+  },
+  "batch": {
+    "selectConfig": "Choose a config",
+    "orUploadJson": "or upload JSON",
+    "targetTemplate": "Target template",
+    "primarySlotHint": "Multiple files allowed; one output per file",
+    "lookupSlotHint": "Single file, shared by all primaries",
+    "outputCount": "Will produce {{n}} output(s)",
+    "start": "Start conversion",
+    "newBatch": "New batch",
+    "lastFilename": "Last: {{name}}"
+  },
+  "errors": {
+    "generic": "An error occurred. Please contact support.",
+    "requestId": "Request ID: {{id}}",
+    "duplicateConfig": "Project \"{{name}}\" already exists",
+    "invalidName": "Project name may contain letters/digits/underscore/hyphen/space, 1–80 chars"
+  },
+  "mobile": {
+    "title": "Please use a desktop browser",
+    "body": "Configuration requires more screen space — please open on a desktop or laptop."
+  }
+}
