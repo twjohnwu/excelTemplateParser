@@ -1,0 +1,112 @@
+{
+  "version": "1.0",
+  "name": "agri_market_report",
+  "target_template": {
+    "sheet": "市場日報",
+    "header_row": 1,
+    "preserve_styles": true,
+    "columns": [
+      "交易日",
+      "所在縣市",
+      "市場",
+      "分類",
+      "作物",
+      "平均價",
+      "交易量(公斤)"
+    ],
+    "sample_filename": "template.xlsx"
+  },
+  "sources": [
+    {
+      "alias": "trades",
+      "role": "primary",
+      "sheet": "trades",
+      "header_row": 1,
+      "sample_filename": "daily_trades.xlsx"
+    },
+    {
+      "alias": "markets",
+      "role": "lookup",
+      "sheet": "市場",
+      "header_row": 1,
+      "sample_filename": "market_codes.xlsx"
+    },
+    {
+      "alias": "categories",
+      "role": "lookup",
+      "sheet": "TcType",
+      "header_row": 1,
+      "sample_filename": "tc_type_codes.xlsx"
+    }
+  ],
+  "joins": [
+    {
+      "left": "trades.MarketCode",
+      "right": "markets.市場代碼",
+      "type": "left"
+    },
+    {
+      "left": "trades.TcType",
+      "right": "categories.TcType",
+      "type": "left"
+    }
+  ],
+  "mappings": [
+    {
+      "target": "交易日",
+      "source": "trades.TransDate",
+      "literal": null,
+      "source_cell": null,
+      "conditions": [],
+      "default": ""
+    },
+    {
+      "target": "所在縣市",
+      "source": "markets.所在縣市",
+      "literal": null,
+      "source_cell": null,
+      "conditions": [],
+      "default": ""
+    },
+    {
+      "target": "市場",
+      "source": "markets.市場名稱",
+      "literal": null,
+      "source_cell": null,
+      "conditions": [],
+      "default": ""
+    },
+    {
+      "target": "分類",
+      "source": "categories.分類",
+      "literal": null,
+      "source_cell": null,
+      "conditions": [],
+      "default": ""
+    },
+    {
+      "target": "作物",
+      "source": "trades.CropName",
+      "literal": null,
+      "source_cell": null,
+      "conditions": [],
+      "default": ""
+    },
+    {
+      "target": "平均價",
+      "source": "trades.Avg_Price",
+      "literal": null,
+      "source_cell": null,
+      "conditions": [],
+      "default": ""
+    },
+    {
+      "target": "交易量(公斤)",
+      "source": "trades.Trans_Quantity",
+      "literal": null,
+      "source_cell": null,
+      "conditions": [],
+      "default": ""
+    }
+  ]
+}

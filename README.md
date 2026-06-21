@@ -107,6 +107,7 @@ The ZIP contains one xlsx per primary input (`{source_filename}.out.xlsx`, style
 End-to-end scenarios live under [`examples/`](./examples). Each one ships with `config.json`, source xlsx files, a target template, and the expected output — run the tool on the inputs and you should get the same output.
 
 - [**01_product_pricing**](./examples/01_product_pricing) — master catalog × three suppliers' monthly quotes, each using different column names (`貨號` / `SKU` / `商品編號`). Demonstrates **outer join** to surface products nobody quoted.
+- [**02_agri_market_report**](./examples/02_agri_market_report) — Taiwan MOA open-government data: 1000 daily wholesale trade rows joined against market-code and TcType lookups. Demonstrates a **real-world data mashup** with cross-language column names.
 
 ---
 
