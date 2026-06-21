@@ -1,0 +1,124 @@
+{
+  "version": "1.0",
+  "name": "product_pricing",
+  "target_template": {
+    "sheet": "比價表",
+    "header_row": 1,
+    "preserve_styles": true,
+    "columns": [
+      "SKU",
+      "商品名稱",
+      "分類",
+      "建議售價",
+      "A報價",
+      "B報價",
+      "C報價"
+    ],
+    "sample_filename": "template.xlsx"
+  },
+  "sources": [
+    {
+      "alias": "master",
+      "role": "primary",
+      "sheet": "商品主檔",
+      "header_row": 1,
+      "sample_filename": "product_master.xlsx"
+    },
+    {
+      "alias": "supplier_a",
+      "role": "lookup",
+      "sheet": "月報價",
+      "header_row": 1,
+      "sample_filename": "supplier_A_quote.xlsx"
+    },
+    {
+      "alias": "supplier_b",
+      "role": "lookup",
+      "sheet": "Monthly Quote",
+      "header_row": 1,
+      "sample_filename": "supplier_B_quote.xlsx"
+    },
+    {
+      "alias": "supplier_c",
+      "role": "lookup",
+      "sheet": "報價單",
+      "header_row": 1,
+      "sample_filename": "supplier_C_quote.xlsx"
+    }
+  ],
+  "joins": [
+    {
+      "left": "master.SKU",
+      "right": "supplier_a.貨號",
+      "type": "outer"
+    },
+    {
+      "left": "master.SKU",
+      "right": "supplier_b.SKU",
+      "type": "outer"
+    },
+    {
+      "left": "master.SKU",
+      "right": "supplier_c.商品編號",
+      "type": "outer"
+    }
+  ],
+  "mappings": [
+    {
+      "target": "SKU",
+      "source": "master.SKU",
+      "literal": null,
+      "source_cell": null,
+      "conditions": [],
+      "default": ""
+    },
+    {
+      "target": "商品名稱",
+      "source": "master.商品名稱",
+      "literal": null,
+      "source_cell": null,
+      "conditions": [],
+      "default": ""
+    },
+    {
+      "target": "分類",
+      "source": "master.分類",
+      "literal": null,
+      "source_cell": null,
+      "conditions": [],
+      "default": ""
+    },
+    {
+      "target": "建議售價",
+      "source": "master.建議售價",
+      "literal": null,
+      "source_cell": null,
+      "conditions": [],
+      "default": ""
+    },
+    {
+      "target": "A報價",
+      "source": "supplier_a.單價",
+      "literal": null,
+      "source_cell": null,
+      "conditions": [],
+      "default": ""
+    },
+    {
+      "target": "B報價",
+      "source": "supplier_b.Price",
+      "literal": null,
+      "source_cell": null,
+      "conditions": [],
+      "default": ""
+    },
+    {
+      "target": "C報價",
+      "source": "supplier_c.Unit Price",
+      "literal": null,
+      "source_cell": null,
+      "conditions": [],
+      "default": ""
+    }
+  ]
+}

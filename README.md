@@ -102,6 +102,14 @@ The ZIP contains one xlsx per primary input (`{source_filename}.out.xlsx`, style
 
 ---
 
+## Examples
+
+End-to-end scenarios live under [`examples/`](./examples). Each one ships with `config.json`, source xlsx files, a target template, and the expected output — run the tool on the inputs and you should get the same output.
+
+- [**01_product_pricing**](./examples/01_product_pricing) — master catalog × three suppliers' monthly quotes, each using different column names (`貨號` / `SKU` / `商品編號`). Demonstrates **outer join** to surface products nobody quoted.
+
+---
+
 ## Architecture
 
 ```
