@@ -13,7 +13,7 @@ NAME_PATTERN = re.compile(r"^[\w一-鿿぀-ヿ\- ]{1,80}$", re.UNICODE)
 
 Operator = Literal[">=", "<=", "==", "!=", "contains", "regex", "in"]
 SourceRole = Literal["primary", "lookup"]
-JoinType = Literal["left", "inner"]
+JoinType = Literal["left", "inner", "outer", "right"]
 JobStatus = Literal["pending", "running", "done", "failed", "cancelled"]
 SubtaskStatus = Literal["pending", "running", "done", "failed"]
 

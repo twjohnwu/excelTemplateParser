@@ -634,6 +634,22 @@ if (json === EMPTY_PERSISTABLE_JSON) return;  // 不寫也不刪
 
 ---
 
+## 9. JoinType 從 left/inner 擴展到 outer/right
+
+**Demo case 觸發**：寫 `examples/01_product_pricing/`（主商品表 + 多家供應商月報價）時，自然要展示「主商品表中沒有任何供應商報價的商品」——這是業務上有意義的洞察（哪些商品被冷落了）。但設定下去發現 schema 只支援 `left` / `inner`，做不到「primary 跟 lookup 雙邊都保留」。
+
+**症狀**：`JoinType = Literal["left", "inner"]` 不允許 outer，schema 驗證會擋下；即使硬塞 `"outer"`，pydantic 也會報 invalid literal。
+
+**根因**：MVP 階段視 outer / right 為 YAGNI——「主檔 + 補欄位」場景用 left 就夠，inner 處理「只要兩邊都有的」。當時的 use case 集合裡沒有「diff / 補集 / 雙邊保留」這類需求。
+
+**修法**：`backend/app/schemas.py:16` 把 `JoinType = Literal["left", "inner"]` 擴展為 `Literal["left", "inner", "outer", "right"]`。core/joiner.py 第 78 行 `merged.merge(right_df, how=how, ...)` 已經把 `how` 透傳給 pandas merge，原生支援 outer / right，零演算法改動。補 4 個 unit test（outer 雙邊保留、right join 從 lookup 驅動、outer 串連兩個 lookup、outer 跟 NaN 行為）。`core/mapper.py` 的 `_numeric` 已涵蓋 NaN→default，不需改 mapper。
+
+**學到什麼**：**純枚舉擴展通常不到 ADR 等級**——加幾個 literal 值、走原生函式、零演算法改動，傳統上不值得單獨記。但「**為什麼當初判斷不需要、現在判斷需要**」這條軸線才是判斷力的活體紀錄。第一次決定 left + inner 夠用，是用「我能想到的 use case 都是 enrichment」這個前提；錯不在判斷，錯在沒列出「diff / 補集 / 雙邊保留」這類隱形需求。寫 examples 是反向發現這類盲點的好工具——它強迫你把工具放回實際情境，比想像力可靠。
+
+對應跨決策模式：跟 Part 1 #12「Out of Scope 的紀律」是同一條軸線的不同段——當初寫 Out of Scope 是「現在不做」，現在這條 ADR 是「為什麼補做」。兩端串起來才是完整的 scope evolution 紀錄。
+
+---
+
 ## 迭代階段的四條模式
 
 **4 條源自同一條 feature**：1、4、5、6 都是 source_cell 流程的延伸——「加 feature 觸發既有護欄不適用」這條傳統 software bug 模式，在這個系統具體呈現為 schema、序列化、preflight、worker 四個獨立層的同步成本。Part 2 後加的 #7（hardcoded color 漏 dark variant）與 #8（autosave 多重 race）展示同一模式的前端版本：theme 整合處 + state/storage 多路徑的「隱性默契」沒主動橋接。**整合介面是 bug 最高發地帶**這條觀察跨前後端、跨設計階段與迭代階段。

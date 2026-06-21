@@ -128,3 +128,67 @@ def test_inner_join_drops_unmatched(sources):
         {"left": "orders.客戶代號", "right": "customers.代號", "type": "inner"},
     ])
     assert "A999" not in out["orders.單號"].tolist()
+
+
+def test_outer_join_keeps_unmatched_from_both_sides(sources):
+    sources.pop("sales")
+    # add an order whose customer is not in customers (A999/C9)
+    # and add a customer with no orders (C3)
+    sources["orders"] = pd.concat([
+        sources["orders"],
+        pd.DataFrame({"單號": ["A999"], "客戶代號": ["C9"], "狀態": ["成立"], "總額": [100]}),
+    ], ignore_index=True)
+    sources["customers"] = pd.concat([
+        sources["customers"],
+        pd.DataFrame({"代號": ["C3"], "名稱": ["客戶三"], "業務員代號": ["S3"]}),
+    ], ignore_index=True)
+
+    out = joiner.join(sources, [
+        {"left": "orders.客戶代號", "right": "customers.代號", "type": "outer"},
+    ])
+
+    # primary 那邊未匹配的 A999 還在；customers 那邊未匹配的 C3 也以 NaN 填 primary 欄
+    assert "A999" in out["orders.單號"].tolist()
+    assert "客戶三" in out["customers.名稱"].tolist()
+    # 對 C3 來說，orders 欄應為 NaN
+    c3_row = out[out["customers.名稱"] == "客戶三"]
+    assert pd.isna(c3_row["orders.單號"].iloc[0])
+
+
+def test_right_join_drives_from_lookup(sources):
+    sources.pop("sales")
+    # add a customer who has no orders
+    sources["customers"] = pd.concat([
+        sources["customers"],
+        pd.DataFrame({"代號": ["C3"], "名稱": ["客戶三"], "業務員代號": ["S3"]}),
+    ], ignore_index=True)
+
+    out = joiner.join(sources, [
+        {"left": "orders.客戶代號", "right": "customers.代號", "type": "right"},
+    ])
+
+    # right join: customers 為主，C3 留下；對它 orders 欄為 NaN
+    assert "客戶三" in out["customers.名稱"].tolist()
+    c3_row = out[out["customers.名稱"] == "客戶三"]
+    assert pd.isna(c3_row["orders.單號"].iloc[0])
+
+
+def test_outer_join_chained_with_two_lookups(sources):
+    # sales 沒有 S3，但 customers 有 S3 的 reference → outer 串連時保留
+    sources["customers"] = pd.concat([
+        sources["customers"],
+        pd.DataFrame({"代號": ["C3"], "名稱": ["客戶三"], "業務員代號": ["S3"]}),
+    ], ignore_index=True)
+    sources["orders"] = pd.concat([
+        sources["orders"],
+        pd.DataFrame({"單號": ["A004"], "客戶代號": ["C3"], "狀態": ["成立"], "總額": [800]}),
+    ], ignore_index=True)
+
+    out = joiner.join(sources, [
+        {"left": "orders.客戶代號", "right": "customers.代號", "type": "outer"},
+        {"left": "customers.業務員代號", "right": "sales.代號", "type": "outer"},
+    ])
+
+    # A004 → C3 → S3 但 sales 沒 S3 → sales.姓名 應為 NaN
+    a004_row = out[out["orders.單號"] == "A004"]
+    assert pd.isna(a004_row["sales.姓名"].iloc[0])
