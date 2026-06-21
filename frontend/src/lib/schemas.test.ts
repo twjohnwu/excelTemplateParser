@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { configSchema } from "./schemas";
+import { cellValueSchema, configSchema, conditionSchema, operatorSchema } from "./schemas";
 
 const minimal = {
   version: "1.0",
@@ -142,6 +142,56 @@ describe("configSchema", () => {
         },
       ],
     });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects a literal that is an object (tightened from z.unknown)", () => {
+    const r = configSchema.safeParse({
+      ...minimal,
+      mappings: [{ target: "a", literal: { nested: true } }],
+    });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe("operatorSchema", () => {
+  it("parses every supported operator", () => {
+    for (const op of [">=", "<=", "==", "!=", "contains", "regex", "in"]) {
+      expect(operatorSchema.safeParse(op).success).toBe(true);
+    }
+  });
+
+  it("rejects an unknown operator", () => {
+    expect(operatorSchema.safeParse("~=").success).toBe(false);
+  });
+});
+
+describe("cellValueSchema", () => {
+  it("accepts string, number, boolean, null", () => {
+    for (const v of ["x", 3, true, null]) {
+      expect(cellValueSchema.safeParse(v).success).toBe(true);
+    }
+  });
+
+  it("rejects objects and undefined", () => {
+    expect(cellValueSchema.safeParse({ a: 1 }).success).toBe(false);
+    expect(cellValueSchema.safeParse(undefined).success).toBe(false);
+  });
+});
+
+describe("conditionSchema.value", () => {
+  it("accepts a scalar value", () => {
+    const r = conditionSchema.safeParse({ field: "a.b", op: "==", value: 5 });
+    expect(r.success).toBe(true);
+  });
+
+  it("accepts an array value (for the `in` operator)", () => {
+    const r = conditionSchema.safeParse({ field: "a.b", op: "in", value: ["x", "y"] });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects an object value", () => {
+    const r = conditionSchema.safeParse({ field: "a.b", op: "==", value: { x: 1 } });
     expect(r.success).toBe(false);
   });
 });

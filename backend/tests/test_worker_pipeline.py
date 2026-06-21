@@ -19,12 +19,13 @@ from app.settings import Settings
 from app.workers import tasks as worker_tasks
 
 
-def _config() -> ConfigSchema:
+def _config(preserve_styles: bool = True) -> ConfigSchema:
     return ConfigSchema.model_validate({
         "name": "demo",
         "target_template": {
             "sheet": "Sheet1", "header_row": 1,
             "columns": ["訂單編號", "客戶名稱", "業務員", "金額"],
+            "preserve_styles": preserve_styles,
         },
         "sources": [
             {"alias": "orders", "role": "primary", "sheet": "訂單", "header_row": 1},
@@ -187,6 +188,39 @@ def test_finalize_skips_when_subtasks_pending(wired):
     # b not done yet → finalize should no-op
     worker_tasks.finalize_job("j2")
     assert not (wired["settings"].jobs_dir / "j2" / "result.zip").exists()
+
+
+def _read_data_rows(out_path):
+    """Return data cell values (rows 2..end, cols 1..4) as a list of tuples."""
+    wb = load_workbook(out_path, data_only=True)
+    ws = wb["Sheet1"]
+    rows = []
+    for r in range(2, ws.max_row + 1):
+        rows.append(tuple(ws.cell(r, c).value for c in range(1, 5)))
+    return rows
+
+
+@pytest.mark.parametrize("preserve_styles", [True, False])
+@pytest.mark.parametrize("chunk_size", [1, 2, 100])
+def test_execute_streaming_equivalent_across_chunk_sizes(
+    wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx, chunk_size, preserve_styles,
+):
+    """Output values are identical whether the primary streams in many small
+    chunks or one big chunk, and regardless of preserve_styles."""
+    config = _config(preserve_styles=preserve_styles)
+    _setup_job(wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx)
+    job_dir = wired["settings"].jobs_dir / "job1"
+    out_path = job_dir / "out" / f"cs{chunk_size}_ps{int(preserve_styles)}.out.xlsx"
+
+    worker_tasks._execute(job_dir, "orders.xlsx", config, out_path, chunk_size=chunk_size)
+
+    rows = _read_data_rows(out_path)
+    # A001 (成立) fully populated; A002 (取消) → 客戶名稱 blank; A003 (成立).
+    assert rows[0] == ("A001", "客戶一", "張三", 1000)
+    assert rows[1][0] == "A002"
+    assert rows[1][1] in (None, "")
+    assert rows[2] == ("A003", "客戶一", "張三", 2500)
+    assert len(rows) == 3
 
 
 def test_finalize_skips_cancelled(wired):

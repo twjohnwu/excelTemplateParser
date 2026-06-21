@@ -66,3 +66,79 @@ def test_parse_header_row_beyond_end(orders_xlsx):
     with pytest.raises(TemplateInvalid) as exc_info:
         parser.parse(orders_xlsx, "訂單", header_row=99)
     assert "99" in exc_info.value.user_message
+
+
+# ---------- iter_chunks (streaming) ----------
+
+
+def test_iter_chunks_single_chunk(orders_xlsx):
+    chunks = list(parser.iter_chunks(orders_xlsx, "訂單", header_row=1, chunk_size=100))
+    assert len(chunks) == 1
+    assert chunks[0].headers == ["單號", "客戶代號", "狀態", "總額"]
+    assert len(chunks[0].df) == 3
+
+
+def test_iter_chunks_splits_by_chunk_size(orders_xlsx):
+    chunks = list(parser.iter_chunks(orders_xlsx, "訂單", header_row=1, chunk_size=2))
+    # 3 data rows in batches of 2 → [2, 1]
+    assert [len(c.df) for c in chunks] == [2, 1]
+    # Every chunk carries the same headers.
+    assert all(c.headers == ["單號", "客戶代號", "狀態", "總額"] for c in chunks)
+    # Row order preserved across chunks.
+    assert chunks[0].df.iloc[0]["單號"] == "A001"
+    assert chunks[1].df.iloc[0]["單號"] == "A003"
+
+
+def test_iter_chunks_skips_metadata_and_empty_rows(make_xlsx):
+    path = make_xlsx({
+        "Sheet1": [
+            ["公司報表", None, None],
+            ["欄A", "欄B", "欄C"],
+            [1, 2, 3],
+            [None, None, None],   # empty row dropped
+            [4, 5, 6],
+        ]
+    })
+    chunks = list(parser.iter_chunks(path, "Sheet1", header_row=2, chunk_size=1))
+    assert [len(c.df) for c in chunks] == [1, 1]  # 2 data rows, empty dropped
+    assert chunks[0].headers == ["欄A", "欄B", "欄C"]
+
+
+def test_iter_chunks_pads_short_rows(make_xlsx):
+    path = make_xlsx({"Sheet1": [["a", "b", "c"], [1, 2]]})  # short data row
+    chunks = list(parser.iter_chunks(path, "Sheet1", header_row=1, chunk_size=10))
+    assert list(chunks[0].df.iloc[0]) == [1, 2, None]
+
+
+def test_iter_chunks_empty_data_yields_one_chunk(make_xlsx):
+    path = make_xlsx({"Sheet1": [["a", "b"]]})  # header only, no data
+    chunks = list(parser.iter_chunks(path, "Sheet1", header_row=1, chunk_size=10))
+    assert len(chunks) == 1
+    assert chunks[0].headers == ["a", "b"]
+    assert len(chunks[0].df) == 0
+
+
+def test_iter_chunks_equivalent_to_parse(orders_xlsx):
+    import pandas as pd
+
+    streamed = pd.concat(
+        [c.df for c in parser.iter_chunks(orders_xlsx, "訂單", header_row=1, chunk_size=2)],
+        ignore_index=True,
+    )
+    whole = parser.parse(orders_xlsx, "訂單", header_row=1).df
+    pd.testing.assert_frame_equal(streamed, whole)
+
+
+def test_iter_chunks_invalid_header_row_raises(orders_xlsx):
+    with pytest.raises(TemplateInvalid):
+        list(parser.iter_chunks(orders_xlsx, "訂單", header_row=0))
+
+
+def test_iter_chunks_missing_sheet_raises(orders_xlsx):
+    with pytest.raises(TemplateInvalid):
+        list(parser.iter_chunks(orders_xlsx, "不存在", header_row=1))
+
+
+def test_iter_chunks_header_row_beyond_end_raises(orders_xlsx):
+    with pytest.raises(TemplateInvalid):
+        list(parser.iter_chunks(orders_xlsx, "訂單", header_row=99))

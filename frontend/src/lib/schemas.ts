@@ -2,14 +2,21 @@
 
 import { z } from "zod";
 
-export const operatorSchema = z.enum([">=", "<=", "==", "!=", "contains", "regex", "in"]);
+export const OPERATORS = [">=", "<=", "==", "!=", "contains", "regex", "in"] as const;
+export const operatorSchema = z.enum(OPERATORS);
 export type Operator = z.infer<typeof operatorSchema>;
 
-export const sourceRoleSchema = z.enum(["primary", "lookup"]);
+export const SOURCE_ROLES = ["primary", "lookup"] as const;
+export const sourceRoleSchema = z.enum(SOURCE_ROLES);
 export type SourceRole = z.infer<typeof sourceRoleSchema>;
 
-export const joinTypeSchema = z.enum(["left", "inner"]);
+export const JOIN_TYPES = ["left", "inner"] as const;
+export const joinTypeSchema = z.enum(JOIN_TYPES);
 export type JoinType = z.infer<typeof joinTypeSchema>;
+
+/** A scalar Excel cell value. Conditions may also compare against a list (for `in`). */
+export const cellValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+export type CellValue = z.infer<typeof cellValueSchema>;
 
 const qualified = (v: string) =>
   v.includes(".") && !v.startsWith(".") && !v.endsWith(".");
@@ -39,7 +46,7 @@ export const joinRuleSchema = z.object({
 export const conditionSchema = z.object({
   field: z.string().refine(qualified, "必須為 alias.column"),
   op: operatorSchema,
-  value: z.unknown(),
+  value: z.union([cellValueSchema, z.array(cellValueSchema)]),
 });
 
 export const cellAddressPattern = /^[A-Z]+[1-9]\d*$/;
@@ -53,10 +60,10 @@ export const mappingSchema = z
   .object({
     target: z.string().min(1),
     source: z.string().refine(qualified, "必須為 alias.column").optional(),
-    literal: z.unknown().optional(),
+    literal: cellValueSchema.optional(),
     source_cell: sourceCellSchema.nullable().optional(),
     conditions: z.array(conditionSchema).default([]),
-    default: z.unknown().default(""),
+    default: cellValueSchema.default(""),
   })
   .superRefine((m, ctx) => {
     const hasSource = m.source !== undefined && m.source !== "";

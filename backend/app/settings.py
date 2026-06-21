@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     rq_workers: int = Field(default=4, alias="RQ_WORKERS")
     job_timeout_min: int = Field(default=10, alias="JOB_TIMEOUT_MIN")
 
+    # Rows pulled into memory per streaming chunk when parsing the primary file.
+    # Bounds peak memory for large inputs; lookup sources are still loaded whole.
+    parse_chunk_size: int = Field(default=10000, alias="PARSE_CHUNK_SIZE")
+
     download_grace_minutes: int = Field(default=60, alias="DOWNLOAD_GRACE_MINUTES")
     job_retention_hours: int = Field(default=24, alias="JOB_RETENTION_HOURS")
 

@@ -84,7 +84,7 @@ def run_subtask(job_id: str, source_file: str) -> None:
 
     try:
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        _execute(job_dir, source_file, config, out_path)
+        _execute(job_dir, source_file, config, out_path, chunk_size=settings.parse_chunk_size)
     except CoreError as exc:
         is_last = job_svc.mark_failed(job_id, source_file, exc.user_message, exc.tech_detail)
         bound.error("subtask.failed", **exc.context, exc_info=True)
@@ -130,13 +130,32 @@ def df_needed_aliases(config: ConfigSchema) -> set[str]:
     return needed
 
 
-def _execute(job_dir: Path, primary_file: str, config: ConfigSchema, out_path: Path) -> None:
-    """Run parse → join → map → write for a single primary file."""
+def _primary_is_join_base(config: ConfigSchema) -> bool:
+    """Streaming requires the primary to be the join root (joiner uses the first
+    rule's left alias as the merge base). With no joins the primary is trivially
+    the base. Otherwise we must fall back to a full load to preserve semantics.
+    """
+    if not config.joins:
+        return True
+    return config.joins[0].left.split(".", 1)[0] == config.primary_alias
+
+
+def _execute(
+    job_dir: Path, primary_file: str, config: ConfigSchema, out_path: Path, *, chunk_size: int
+) -> None:
+    """Run parse → join → map → write for a single primary file.
+
+    The primary is streamed in chunks (bounded memory); lookups are loaded whole
+    and re-joined onto each chunk. Falls back to a full load when the primary
+    isn't the join base (rare), so join semantics never change.
+    """
     primary_path = job_dir / "uploads" / "primary" / primary_file
     target_path = job_dir / "uploads" / "target.xlsx"
 
     df_needed = df_needed_aliases(config)
-    sources_dfs = {}
+    primary_spec = next(s for s in config.sources if s.role == "primary")
+
+    lookups: dict = {}
     source_files: dict[str, Path] = {}
     source_sheets: dict[str, str] = {}
     for spec in config.sources:
@@ -146,23 +165,36 @@ def _execute(job_dir: Path, primary_file: str, config: ConfigSchema, out_path: P
             file_path = job_dir / "uploads" / "lookup" / f"{spec.alias}.xlsx"
         source_files[spec.alias] = file_path
         source_sheets[spec.alias] = spec.sheet
-        if spec.alias in df_needed:
-            sources_dfs[spec.alias] = parser.parse(file_path, spec.sheet, spec.header_row).df
+        if spec.role != "primary" and spec.alias in df_needed:
+            lookups[spec.alias] = parser.parse(file_path, spec.sheet, spec.header_row).df
 
-    joined = joiner.join(sources_dfs, [j.model_dump() for j in config.joins])
     pinned_cells = _resolve_source_cells(config, source_files, source_sheets)
-    mapped = mapper.apply(
-        joined,
-        [m.model_dump() for m in config.mappings],
-        config.target_template.columns,
-        pinned_cells=pinned_cells,
-    )
-    writer.write(
+    joins = [j.model_dump() for j in config.joins]
+    mappings = [m.model_dump() for m in config.mappings]
+    primary_alias = config.primary_alias
+
+    def _map_chunk(primary_df):
+        joined = joiner.join({**lookups, primary_alias: primary_df}, joins)
+        return mapper.apply(joined, mappings, config.target_template.columns, pinned_cells=pinned_cells)
+
+    if _primary_is_join_base(config):
+        mapped_chunks = (
+            _map_chunk(chunk.df)
+            for chunk in parser.iter_chunks(
+                primary_path, primary_spec.sheet, primary_spec.header_row, chunk_size=chunk_size
+            )
+        )
+    else:
+        primary_df = parser.parse(primary_path, primary_spec.sheet, primary_spec.header_row).df
+        mapped_chunks = iter([_map_chunk(primary_df)])
+
+    writer.write_stream(
         target_path,
-        mapped,
+        mapped_chunks,
         sheet=config.target_template.sheet,
         header_row=config.target_template.header_row,
         out_path=out_path,
+        preserve_styles=config.target_template.preserve_styles,
     )
 
 
