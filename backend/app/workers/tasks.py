@@ -16,10 +16,13 @@ from pathlib import Path
 import structlog
 from redis import Redis
 
-import openpyxl
-
 from ..core import joiner, mapper, parser, writer, zipper
-from ..core.exceptions import CoreError, MappingError
+from ..core.exceptions import CoreError
+from ..core.preview import (
+    df_needed_aliases,
+    _primary_is_join_base,
+    resolve_source_cells as _resolve_source_cells,
+)
 from ..schemas import ConfigSchema, JobState, SubtaskState
 from ..services.cleanup_service import CleanupService
 from ..services.config_service import ConfigService
@@ -112,34 +115,6 @@ def run_subtask(job_id: str, source_file: str) -> None:
         enqueue_finalize(make_queue(redis), job_id)
 
 
-def df_needed_aliases(config: ConfigSchema) -> set[str]:
-    """Aliases that need to be parsed into a DataFrame for the join/map pipeline.
-
-    `source_cell`-only sources are excluded — their values are read directly via
-    openpyxl in `_resolve_source_cells` and never enter the joined DataFrame.
-    """
-    needed = {config.primary_alias}
-    for j in config.joins:
-        needed.add(j.left.split(".", 1)[0])
-        needed.add(j.right.split(".", 1)[0])
-    for m in config.mappings:
-        if m.source:
-            needed.add(m.source.split(".", 1)[0])
-        for c in m.conditions:
-            needed.add(c.field.split(".", 1)[0])
-    return needed
-
-
-def _primary_is_join_base(config: ConfigSchema) -> bool:
-    """Streaming requires the primary to be the join root (joiner uses the first
-    rule's left alias as the merge base). With no joins the primary is trivially
-    the base. Otherwise we must fall back to a full load to preserve semantics.
-    """
-    if not config.joins:
-        return True
-    return config.joins[0].left.split(".", 1)[0] == config.primary_alias
-
-
 def _execute(
     job_dir: Path, primary_file: str, config: ConfigSchema, out_path: Path, *, chunk_size: int
 ) -> None:
@@ -196,54 +171,6 @@ def _execute(
         out_path=out_path,
         preserve_styles=config.target_template.preserve_styles,
     )
-
-
-def _resolve_source_cells(
-    config: ConfigSchema,
-    source_files: dict[str, Path],
-    source_sheets: dict[str, str],
-) -> dict[int, object]:
-    """Resolve every mapping.source_cell to its xlsx cell value, keyed by
-    mapping index. Workbooks are cached so each source file is opened once.
-    """
-    needed = [
-        (i, m.source_cell)
-        for i, m in enumerate(config.mappings)
-        if m.source_cell is not None
-    ]
-    if not needed:
-        return {}
-
-    cache: dict[Path, "openpyxl.Workbook"] = {}
-    resolved: dict[int, object] = {}
-    try:
-        for idx, sc in needed:
-            path = source_files[sc.alias]
-            sheet_name = source_sheets[sc.alias]
-            if path not in cache:
-                cache[path] = openpyxl.load_workbook(
-                    path, data_only=True, read_only=True
-                )
-            wb = cache[path]
-            if sheet_name not in wb.sheetnames:
-                raise MappingError(
-                    user_message=f"來源「{sc.alias}」中找不到工作表「{sheet_name}」",
-                    tech_detail=f"sheets={wb.sheetnames}",
-                    mapping=config.mappings[idx].model_dump(),
-                )
-            try:
-                value = wb[sheet_name][sc.address].value
-            except (ValueError, KeyError) as exc:
-                raise MappingError(
-                    user_message=f"來源「{sc.alias}」的儲存格『{sc.address}』讀取失敗",
-                    tech_detail=str(exc),
-                    mapping=config.mappings[idx].model_dump(),
-                ) from exc
-            resolved[idx] = value
-    finally:
-        for wb in cache.values():
-            wb.close()
-    return resolved
 
 
 def finalize_job(job_id: str) -> None:
