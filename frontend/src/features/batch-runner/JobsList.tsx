@@ -96,6 +96,7 @@ export function JobsList({ refreshKey, highlightJobId, onClearHighlight }: Props
                 <Button
                   size="sm"
                   variant="ghost"
+                  aria-label={t("jobs.remove")}
                   onClick={() => {
                     removeRecent(j.id);
                     setRecents(listRecent());

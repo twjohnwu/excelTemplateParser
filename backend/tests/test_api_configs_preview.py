@@ -224,3 +224,22 @@ def test_preview_matches_worker_pipeline(
     assert len(preview_rows) == len(worker_rows)
     for p_row, w_row in zip(preview_rows, worker_rows):
         assert [_norm(x) for x in p_row] == [_norm(x) for x in w_row]
+
+
+def test_preview_422_body_contains_request_id(
+    api_client, target_xlsx, customers_xlsx, sales_xlsx, make_xlsx
+):
+    """Preflight 422 must include request_id in the detail body (aligns with the
+    global CoreError handler shape so the frontend can display the error uniformly)."""
+    broken = make_xlsx({
+        "訂單": [["單號", "狀態", "總額"], ["A001", "成立", 100]],
+    }, filename="broken_orders.xlsx")
+    files = _preview_files(target_xlsx, broken, customers_xlsx, sales_xlsx)
+    r = api_client.post(
+        "/api/configs/preview",
+        data={"config_json": json.dumps(CONFIG)},
+        files=files,
+    )
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert "request_id" in detail, f"request_id missing from 422 body: {detail}"

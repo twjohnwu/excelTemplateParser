@@ -130,7 +130,8 @@ async def preview_config(
         _check_xlsx_magic(target_path)
 
         # Preflight uploaded source files against the config (same rules as jobs).
-        _preview_preflight(config, source_files)
+        request_id = getattr(request.state, "request_id", "")
+        _preview_preflight(config, source_files, request_id=request_id)
 
         # CoreError from the pipeline (e.g. bad source_cell) surfaces via the
         # global handler as the 422 CoreError shape.
@@ -161,7 +162,7 @@ def _validate_preview_sources(
             )
 
 
-def _preview_preflight(config: ConfigSchema, source_files: dict[str, Path]) -> None:
+def _preview_preflight(config: ConfigSchema, source_files: dict[str, Path], *, request_id: str = "") -> None:
     """Verify sheet + required columns on each df-needed source, mirroring
     `api/jobs.py::_run_preflight`. `source_cell`-only aliases are skipped (their
     values are read via absolute addressing at map time).
@@ -184,7 +185,12 @@ def _preview_preflight(config: ConfigSchema, source_files: dict[str, Path]) -> N
         except CoreError as exc:
             raise HTTPException(
                 status_code=422,
-                detail={"error": exc.user_message, "code": type(exc).__name__, **exc.context},
+                detail={
+                    "error": exc.user_message,
+                    "code": type(exc).__name__,
+                    "request_id": request_id,
+                    **exc.context,
+                },
             )
 
 
