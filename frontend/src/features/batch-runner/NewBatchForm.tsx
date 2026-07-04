@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -13,7 +15,7 @@ import { addRecent } from "@/lib/recentJobs";
 import { configSchema, type Config } from "@/lib/schemas";
 
 type Props = {
-  onJobCreated: () => void;
+  onJobCreated: (jobId: string) => void;
 };
 
 type SlotState = {
@@ -25,6 +27,7 @@ type SlotState = {
 
 export function NewBatchForm({ onJobCreated }: Props) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { data: list } = useConfigList();
 
   const [configName, setConfigName] = useState<string>("");
@@ -41,7 +44,7 @@ export function NewBatchForm({ onJobCreated }: Props) {
       try {
         setResolvedConfig(configSchema.parse(JSON.parse(text)));
       } catch (e) {
-        setError(`config_json 解析失敗：${(e as Error).message}`);
+        setError(t("batch.configParseError", { message: (e as Error).message }));
       }
     });
   }, [inlineConfig]);
@@ -93,10 +96,16 @@ export function NewBatchForm({ onJobCreated }: Props) {
         configName: resolvedConfig.name,
         createdAt: new Date().toISOString(),
       });
+      toast.success(t("batch.createSuccess"), {
+        action: {
+          label: t("batch.viewProgress"),
+          onClick: () => navigate(`/jobs/${job_id}`),
+        },
+      });
       // Reset for next batch.
       setTarget(null);
       setSlots(slots.map((s) => ({ ...s, files: [] })));
-      onJobCreated();
+      onJobCreated(job_id);
     } catch (e) {
       if (e instanceof ApiError) setError(`${e.message}${e.requestId ? ` (id: ${e.requestId})` : ""}`);
       else setError(String(e));
@@ -183,7 +192,7 @@ export function NewBatchForm({ onJobCreated }: Props) {
                       checked={sharing}
                       onChange={(e) => updateSlot(idx, e.target.checked ? twin.files : [])}
                     />
-                    使用與 <code className="mx-1">{twin.alias}</code> 相同的檔案
+                    {t("batch.shareFilePrefix")}<code className="mx-1">{twin.alias}</code>{t("batch.shareFileSuffix")}
                   </label>
                 )}
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { Toaster } from "sonner";
 
 import { TopMenuBar } from "@/components/TopMenuBar";
 import { ConfigBuilder } from "@/pages/ConfigBuilder";
@@ -44,6 +45,7 @@ export function App() {
           <Route path="*" element={<Navigate to="/configs" replace />} />
         </Routes>
       </main>
+      <Toaster position="bottom-right" />
     </div>
   );
 }

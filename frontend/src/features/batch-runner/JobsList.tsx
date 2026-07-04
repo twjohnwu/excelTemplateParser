@@ -10,9 +10,13 @@ import { fmtTime } from "@/lib/configHelpers";
 import { listRecent, removeRecent, type RecentJob } from "@/lib/recentJobs";
 import type { JobSnapshot } from "@/lib/schemas";
 
-type Props = { refreshKey: number };
+type Props = {
+  refreshKey: number;
+  highlightJobId?: string | null;
+  onClearHighlight?: () => void;
+};
 
-export function JobsList({ refreshKey }: Props) {
+export function JobsList({ refreshKey, highlightJobId, onClearHighlight }: Props) {
   const { t } = useTranslation();
   const [recents, setRecents] = useState<RecentJob[]>([]);
   const [snapshots, setSnapshots] = useState<Record<string, JobSnapshot>>({});
@@ -20,6 +24,14 @@ export function JobsList({ refreshKey }: Props) {
   useEffect(() => {
     setRecents(listRecent());
   }, [refreshKey]);
+
+  useEffect(() => {
+    if (!highlightJobId) return;
+    const handle = setTimeout(() => {
+      onClearHighlight?.();
+    }, 2000);
+    return () => clearTimeout(handle);
+  }, [highlightJobId, onClearHighlight]);
 
   useEffect(() => {
     if (recents.length === 0) return;
@@ -60,8 +72,12 @@ export function JobsList({ refreshKey }: Props) {
       {recents.map((j) => {
         const snap = snapshots[j.id];
         const pct = snap && snap.total > 0 ? Math.round(((snap.done + snap.failed) / snap.total) * 100) : 0;
+        const isHighlighted = j.id === highlightJobId;
         return (
-          <div key={j.id} className="space-y-1 rounded-md border bg-card p-2 text-sm">
+          <div
+            key={j.id}
+            className={`space-y-1 rounded-md border bg-card p-2 text-sm${isHighlighted ? " animate-pulse ring-2 ring-blue-400" : ""}`}
+          >
             <div className="flex items-center justify-between">
               <div className="min-w-0 flex-1">
                 <div className="truncate font-medium">{j.configName ?? j.id.slice(0, 8)}</div>

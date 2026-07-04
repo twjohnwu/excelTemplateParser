@@ -6,6 +6,14 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { api, ApiError } from "@/lib/api";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { useJobSnapshot } from "@/hooks/useJobSnapshot";
 import { removeRecent } from "@/lib/recentJobs";
 import type { JobState } from "@/lib/schemas";
@@ -16,6 +24,7 @@ export function JobDetail() {
   const { snapshot, connected, loading, error } = useJobSnapshot(id);
   const [state, setState] = useState<JobState | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -33,9 +42,14 @@ export function JobDetail() {
     };
   }, [id]);
 
-  const onCancel = async () => {
+  const onCancel = () => {
     if (!id) return;
-    if (!confirm(t("jobs.cancel") + "?")) return;
+    setShowCancelDialog(true);
+  };
+
+  const confirmCancel = async () => {
+    if (!id) return;
+    setShowCancelDialog(false);
     setBusy(true);
     try {
       await api.post(`/api/jobs/${id}/cancel`);
@@ -53,9 +67,9 @@ export function JobDetail() {
     }
   };
 
-  if (loading) return <p>Loading…</p>;
+  if (loading) return <p>{t("jobs.loading")}</p>;
   if (error) return <p className="text-destructive">{error}</p>;
-  if (!snapshot || !id) return <p>Not found</p>;
+  if (!snapshot || !id) return <p>{t("jobs.notFound")}</p>;
 
   const pct = snapshot.total > 0 ? Math.round(((snapshot.done + snapshot.failed) / snapshot.total) * 100) : 0;
   const etaText = snapshot.eta_seconds != null
@@ -67,6 +81,23 @@ export function JobDetail() {
 
   return (
     <div className="space-y-4">
+      <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("dialog.cancelJob.title")}</DialogTitle>
+            <DialogDescription>{t("dialog.cancelJob.description")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCancelDialog(false)}>
+              {t("dialog.cancelJob.cancel")}
+            </Button>
+            <Button className="bg-red-600 text-white hover:bg-red-700" onClick={confirmCancel}>
+              {t("dialog.cancelJob.confirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="flex items-baseline justify-between">
         <h2 className="text-lg font-semibold">{snapshot.config_name ?? id}</h2>
         <span className="text-xs text-muted-foreground">#{id.slice(0, 8)}</span>
@@ -114,10 +145,10 @@ export function JobDetail() {
           <table className="w-full text-sm">
             <thead className="bg-muted text-xs text-muted-foreground">
               <tr>
-                <th className="px-3 py-1 text-left">File</th>
-                <th className="px-3 py-1 text-left">Status</th>
-                <th className="px-3 py-1 text-right">Duration</th>
-                <th className="px-3 py-1 text-left">Message</th>
+                <th className="px-3 py-1 text-left">{t("jobs.table.file")}</th>
+                <th className="px-3 py-1 text-left">{t("jobs.table.status")}</th>
+                <th className="px-3 py-1 text-right">{t("jobs.table.duration")}</th>
+                <th className="px-3 py-1 text-left">{t("jobs.table.message")}</th>
               </tr>
             </thead>
             <tbody>
@@ -142,6 +173,7 @@ export function JobDetail() {
 }
 
 function StatusBadge({ status }: { status: string }) {
+  const { t } = useTranslation();
   const color: Record<string, string> = {
     pending: "bg-gray-200 text-gray-700",
     running: "bg-blue-100 text-blue-700",
@@ -150,7 +182,7 @@ function StatusBadge({ status }: { status: string }) {
   };
   return (
     <span className={`rounded-full px-2 py-0.5 text-xs ${color[status] ?? "bg-gray-100"}`}>
-      {status}
+      {t(`jobs.status.${status}`, status)}
     </span>
   );
 }
