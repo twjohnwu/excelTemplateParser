@@ -9,7 +9,7 @@ ERP Excel batch conversion tool. Single-machine intranet deployment via `docker 
 - **Storage**: Redis (AOF persistence) + filesystem (`/data/` as source of truth)
 - **Worker**: RQ background worker; one subtask per primary source file
 
-See `docs/spec/` for full design docs (proposal / design / tasks / spec). For known pitfalls discovered post-launch (eight iterations spanning schema null serialization, broadcast semantics, source_cell pipeline forking, and draft autosave races), scan `docs/decisions_log.md` Part 2 before adding similar features.
+See `docs/spec/` for full design docs (proposal / design / tasks / spec). For known pitfalls discovered post-launch (schema null serialization, broadcast semantics, source_cell pipeline forking, draft autosave races) and the 2026-07 UX overhaul decisions (wizard rejection, stateless preview, layout-height lessons), scan `docs/decisions_log.md` Parts 2–3 before adding similar features.
 
 ## Layout
 
@@ -18,7 +18,7 @@ backend/
   app/
     api/         # FastAPI routers (templates / configs / jobs)
     services/    # config_service, job_service, recovery_service, cleanup_service + scheduler.py
-    core/        # Pure functions: parser / joiner / mapper / writer / zipper / preflight / exceptions
+    core/        # Pure functions: parser / joiner / mapper / writer / zipper / preflight / preview / exceptions
     middleware/  # request_id.py, upload_limit.py
     workers/     # tasks.py (RQ subtask + finalize), queue.py, run.py
     main.py      # FastAPI entry + lifespan (recovery + scheduler)
@@ -33,14 +33,14 @@ frontend/
     features/          # config-builder/{SourcesTree,JoinsEditor,MappingsList,MappingRow}, batch-runner/{NewBatchForm,JobsList}
     components/        # TopMenuBar, JobsPanel, FileDropzone, SheetHeaderPicker, ConditionChip, ui/*
     hooks/             # useConfigs, useJobSnapshot
-    lib/               # schemas.ts (zod ConfigSchema — mirror of backend), api.ts, recentJobs.ts, configHelpers.ts
+    lib/               # schemas.ts (zod ConfigSchema — mirror of backend), api.ts, recentJobs.ts, configHelpers/previewHelpers/issueHelpers.ts, i18nGuard.test.ts
     i18n/              # zh-TW.json, en.json, index.ts
     theme/             # ThemeProvider.tsx, tokens.css
   Dockerfile
   nginx.conf
 docs/
   spec/                # proposal / design / tasks / spec (synced mirror)
-  decisions_log.md     # 22 design decisions + 8 post-launch iterations
+  decisions_log.md     # 22 design decisions + 8 post-launch iterations + 6 UX-overhaul entries
   case_study.md, learnings.md, plan.md
   ss/                  # Screenshots for README walkthrough
 scripts/               # up.sh, smoke_test.py, resume_test.py, VERIFICATION_REPORT.md
@@ -90,10 +90,12 @@ npm run typecheck                   # tsc --noEmit
 - **Logging**: `structlog` JSON output. Every log line carries `request_id` (API) or `job_id` + `source_file` (worker).
 - **Schema dual-maintenance**: `backend/app/schemas.py` (pydantic) and `frontend/src/lib/schemas.ts` (zod) are two language versions of the same `ConfigSchema`. Any field add / remove / xor change MUST touch both files and align cross-field validation.
 - **Mapping has three modes**: `source` (`alias.col`), `source_cell` (`{alias, address}` for absolute xlsx cell read), and `literal`. The three are mutually exclusive (validated in both pydantic and zod). Mapper branches on them; worker's `_resolve_source_cells` pre-resolves cell mode via openpyxl before the joiner stage. Adding a fourth mode touches schemas (both ends) + mapper + worker pre-resolver + `MappingRow.tsx` toggle.
-- **df_needed_aliases**: not every source enters the parser/joiner/mapper pipeline. `source_cell`-only aliases bypass `parser.parse()` (handled separately by `_resolve_source_cells`). When adding a new mapping mode or worker stage, re-evaluate `backend/app/workers/tasks.py::df_needed_aliases` and the matching guard in `_run_preflight`.
+- **df_needed_aliases**: not every source enters the parser/joiner/mapper pipeline. `source_cell`-only aliases bypass `parser.parse()` (handled separately by `resolve_source_cells`). These shared helpers now live in `backend/app/core/preview.py`; workers AND the preview endpoint import the same functions — never fork pipeline logic between them. When adding a new mapping mode or worker stage, re-evaluate `df_needed_aliases` and the matching guard in `_run_preflight`.
+- **Preview is stateless by design**: `POST /api/configs/preview` stages uploads in a tempdir and deletes them in `finally` — it must never write under `/data` or create a job/Redis state. Recovery and cleanup scan `/data/jobs` as truth; a "preview job" would poison both (decisions_log Part 3 #3).
+- **i18n**: every user-facing string goes through i18n keys present in BOTH `zh-TW.json` and `en.json` (keep key sets symmetric). `lib/i18nGuard.test.ts` fails the suite on any CJK literal outside `i18n/`. Zod messages are `err.*` keys translated only at the display boundary; `schemas.ts` never imports i18next.
 - **localStorage is user-owned**: ConfigBuilder autosave only writes when `JSON.stringify(toPersistable(state)) !== EMPTY_PERSISTABLE_JSON`; `localStorage.removeItem(DRAFT_KEY)` is restricted to explicit user actions (`discardDraft` and `handleSave` on success). Never let autosave mutate or purge localStorage on its own — empty state must be a no-op.
 - **Dark mode color pairing**: Tailwind hardcoded color (`bg-blue-50`, `bg-amber-50`, …) MUST be paired with explicit `text-*` AND `dark:bg-*-900/40 dark:text-*-100`; otherwise dark mode produces white-on-white. Canonical pattern lives in `MappingRow.tsx`.
-- **Optional field guards**: every `m.foo.bar()` on a pydantic Optional field needs `if m.foo is not None`; mypy is not strict, so this is a hand-rule. Same vigilance applies to TypeScript optional-chaining on backend-serialized JSON (null vs undefined trips up zod-parsed shapes).
+- **Optional field guards**: every `m.foo.bar()` on a pydantic Optional field needs `if m.foo is not None`; mypy is not strict, so this is a hand-rule. On the frontend, the backend serializes `null` for unset optional fields, and zod's bare `.optional()` rejects null — every optional string field in `schemas.ts` must be wrapped with `nullishToUndef` (see existing usages) or loading saved configs breaks (decisions_log Part 3 #5).
 
 ## When modifying
 
@@ -105,7 +107,8 @@ npm run typecheck                   # tsc --noEmit
 | Add an autosave / autoload | Define behavior at three boundaries: empty input / mount tick / storage cleanup. Never let an auto behavior mutate user data without explicit consent |
 | Add hardcoded UI color | Pair with explicit `text-*` + `dark:*` variants; cross-check `MappingRow.tsx` for the canonical pattern |
 | Touch error path | Preserve `user_message` + `tech_detail` split; ensure `request_id` flows through to the response; never `try/except` mid-core just to log |
-| Change config JSON shape | Bump or sanity-check the `version` field; check `inferColumnsFromConfig` and `mergeMappingsWithColumns` still work on old shapes |
+| Change config JSON shape | Bump or sanity-check the `version` field; check `inferColumnsFromConfig` and `mergeMappingsWithColumns` still work on old shapes; wrap new optional strings with `nullishToUndef`; regression-test LOADING previously saved configs, not just creating new ones |
+| Add a user-facing string | i18n keys in both locales (never a literal — `i18nGuard.test.ts` will fail); validation messages as `err.*` keys resolved at display boundary |
 
 ## Environment Variables
 
