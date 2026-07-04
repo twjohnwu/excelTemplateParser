@@ -4,6 +4,7 @@
     "configBuilder": "專案設定",
     "batchRunner": "批次轉換",
     "language": "語言",
+    "langLabel": "中",
     "theme": { "light": "淺色", "dark": "深色" }
   },
   "jobs": {
@@ -27,6 +28,14 @@
       "cancelled": "已取消"
     },
     "reconnecting": "連線中…",
+    "loading": "載入中…",
+    "notFound": "找不到此作業",
+    "table": {
+      "file": "檔案",
+      "status": "狀態",
+      "duration": "耗時",
+      "message": "訊息"
+    },
     "downloadGrace": "可重新下載：剩 {{minutes}} 分鐘",
     "downloadExpired": "下載時效已過"
   },
@@ -53,7 +62,61 @@
     "sheet": "工作表",
     "headerRow": "標頭列",
     "headerRowHint": "點擊任一列設為標頭",
-    "loadMoreRows": "再載入 30 列"
+    "headerRowBanner": "點選下方表格中的任一列，即可設為標題列",
+    "headerRowConfirmed": "標題列：第 {{row}} 列 ✓",
+    "loadMoreRows": "再載入 30 列",
+    "addSheetVariant": "+ 同檔另一 sheet",
+    "noJoins": "尚無 Join 規則",
+    "joinLeft": "左側欄位…",
+    "joinRight": "右側欄位…",
+    "loadingPreview": "載入預覽中…",
+    "headersPrefix": "Headers：",
+    "columnsPrefix": "Columns：",
+    "addSource": "+ 新增來源",
+    "joinNumber": "Join #{{n}}",
+    "preview": {
+      "button": "預覽結果",
+      "title": "預覽結果",
+      "rowCount": "顯示 {{n}} 列",
+      "truncated": "結果已截斷，僅顯示部分資料",
+      "empty": "沒有資料列"
+    },
+    "onboarding": {
+      "title": "三步驟快速上手",
+      "step1": "1　上傳範本",
+      "step2": "2　上傳來源",
+      "step3": "3　對應欄位",
+      "cta": "上傳範本"
+    },
+    "rail": {
+      "label": "設定進度",
+      "target": "範本",
+      "sources": "來源",
+      "joins": "Joins",
+      "mappings": "對應",
+      "save": "儲存"
+    }
+  },
+  "joins": {
+    "hint": {
+      "no_columns": "請先為來源選擇工作表與標題列"
+    }
+  },
+  "mapping": {
+    "type": "類型",
+    "selectSource": "選擇來源欄位…",
+    "selectAlias": "選擇 alias…",
+    "conditions": "條件",
+    "modeSource": "來源欄位",
+    "modeSourceCell": "固定儲存格",
+    "modeLiteral": "固定值",
+    "literalPlaceholder": "固定值",
+    "cellAddressHint": "需為 Excel 位址，如 A3",
+    "modeHint": {
+      "source": "從來源檔案的某一欄取值",
+      "source_cell": "從來源檔案的固定位置（如 A3）取值",
+      "literal": "所有列都填入同一個值"
+    }
   },
   "batch": {
     "selectConfig": "選擇設定檔",
@@ -64,13 +127,62 @@
     "outputCount": "將產出 {{n}} 份輸出",
     "start": "開始轉換",
     "newBatch": "新批次",
-    "lastFilename": "上次：{{name}}"
+    "lastFilename": "上次：{{name}}",
+    "configParseError": "config_json 解析失敗：{{message}}",
+    "shareFilePrefix": "使用與 ",
+    "shareFileSuffix": " 相同的檔案",
+    "createSuccess": "批次已建立，正在處理…",
+    "viewProgress": "檢視進度"
+  },
+  "dialog": {
+    "overwriteConfig": {
+      "title": "覆寫設定檔",
+      "description": "此名稱的設定檔已存在。確定要覆寫嗎？",
+      "confirm": "覆寫",
+      "cancel": "取消"
+    },
+    "deleteConfig": {
+      "title": "刪除設定檔",
+      "description": "確定要刪除「{{name}}」嗎？此操作無法復原。",
+      "confirm": "刪除",
+      "cancel": "取消",
+      "deleted": "已刪除「{{name}}」"
+    },
+    "cancelJob": {
+      "title": "取消批次作業",
+      "description": "確定要取消此批次作業嗎？此操作無法復原。",
+      "confirm": "確認取消",
+      "cancel": "保留"
+    }
   },
   "errors": {
     "generic": "發生錯誤，請聯絡管理員",
     "requestId": "請求 ID：{{id}}",
     "duplicateConfig": "專案『{{name}}』已存在",
     "invalidName": "專案名稱僅可含中英文、數字、底線、連字號、空格，長度 1–80"
+  },
+  "err": {
+    "qualified": "請選擇來源欄位",
+    "cellAddress": "儲存格位址格式不正確，例如：A3",
+    "xorMode": "填值方式只能選一種（來源欄位／固定儲存格／固定值）",
+    "requireOneMode": "請選擇填值方式：來源欄位、固定儲存格或固定值",
+    "invalidName": "專案名稱僅可含中英文/數字/底線/連字號/空格，長度 1–80",
+    "duplicateAlias": "來源別名重複，請確認每個來源的別名不同",
+    "noPrimary": "至少需要一個「主要」角色的來源",
+    "joinUnknownAlias": "Join 引用了不存在的來源：{{alias}}",
+    "mappingSourceUnknownAlias": "來源欄位引用了不存在的別名：{{alias}}",
+    "mappingCellUnknownAlias": "固定儲存格引用了不存在的別名：{{alias}}",
+    "aliasDuplicate": "alias 已被其他來源使用，請改用其他名稱",
+    "columnNotInSource": "此欄位不在來源『{{alias}}』的欄位清單中"
+  },
+  "issue": {
+    "label": {
+      "mappingRow": "欄位「{{target}}」",
+      "mappingRowN": "第 {{n}} 列",
+      "join": "Join 第 {{n}} 組",
+      "sources": "來源設定",
+      "name": "專案名稱"
+    }
   },
   "mobile": {
     "title": "請使用桌機",

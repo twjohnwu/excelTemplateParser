@@ -152,6 +152,56 @@ describe("configSchema", () => {
     });
     expect(r.success).toBe(false);
   });
+
+  it("accepts literal-mode mapping with source: null (backend serialisation)", () => {
+    const r = configSchema.safeParse({
+      ...minimal,
+      mappings: [{ target: "a", source: null, literal: "fixed" }],
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.mappings[0].source).toBeUndefined();
+    }
+  });
+
+  it("accepts source_cell-mode mapping with source: null (backend serialisation)", () => {
+    const r = configSchema.safeParse({
+      ...minimal,
+      mappings: [{ target: "a", source: null, source_cell: { alias: "primary", address: "A1" } }],
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.mappings[0].source).toBeUndefined();
+    }
+  });
+
+  it("accepts null sample_filename on target_template and source", () => {
+    const r = configSchema.safeParse({
+      ...minimal,
+      target_template: { ...minimal.target_template, sample_filename: null },
+      sources: [
+        { alias: "primary", role: "primary", sheet: "S", header_row: 1, sample_filename: null },
+      ],
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.target_template.sample_filename).toBeUndefined();
+      expect(r.data.sources[0].sample_filename).toBeUndefined();
+    }
+  });
+
+  it("null source on all three modes yields err.requireOneMode (not invalid_type)", () => {
+    const r = configSchema.safeParse({
+      ...minimal,
+      mappings: [{ target: "a", source: null, literal: null, source_cell: null }],
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const messages = r.error.issues.map((i) => i.message);
+      expect(messages).toContain("err.requireOneMode");
+      expect(messages.some((m) => m === "Expected string, received null")).toBe(false);
+    }
+  });
 });
 
 describe("operatorSchema", () => {

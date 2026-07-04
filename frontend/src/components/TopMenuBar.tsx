@@ -94,7 +94,7 @@ export function TopMenuBar() {
 
           <Button variant="ghost" size="sm" onClick={switchLang} aria-label={t("app.language")}>
             <Languages className="mr-1 h-4 w-4" />
-            <span className="text-xs">{i18n.language.startsWith("zh") ? "中" : "EN"}</span>
+            <span className="text-xs">{t("app.langLabel")}</span>
           </Button>
 
           <Button variant="ghost" size="icon" onClick={toggle} aria-label="theme">

@@ -4,6 +4,7 @@
     "configBuilder": "Project Settings",
     "batchRunner": "Batch Convert",
     "language": "Language",
+    "langLabel": "EN",
     "theme": { "light": "Light", "dark": "Dark" }
   },
   "jobs": {
@@ -27,6 +28,14 @@
       "cancelled": "Cancelled"
     },
     "reconnecting": "Reconnecting…",
+    "loading": "Loading…",
+    "notFound": "Job not found",
+    "table": {
+      "file": "File",
+      "status": "Status",
+      "duration": "Duration",
+      "message": "Message"
+    },
     "downloadGrace": "Re-download available: {{minutes}} min left",
     "downloadExpired": "Download window expired"
   },
@@ -53,7 +62,61 @@
     "sheet": "Sheet",
     "headerRow": "Header row",
     "headerRowHint": "Click any row to set as header",
-    "loadMoreRows": "Load 30 more rows"
+    "headerRowBanner": "Click any row in the table below to set it as the header row",
+    "headerRowConfirmed": "Header row: row {{row}} ✓",
+    "loadMoreRows": "Load 30 more rows",
+    "addSheetVariant": "+ Same file, another sheet",
+    "noJoins": "No joins yet.",
+    "joinLeft": "left side…",
+    "joinRight": "right side…",
+    "loadingPreview": "Loading preview…",
+    "headersPrefix": "Headers: ",
+    "columnsPrefix": "Columns: ",
+    "addSource": "+ Source",
+    "joinNumber": "Join #{{n}}",
+    "preview": {
+      "button": "Preview",
+      "title": "Preview",
+      "rowCount": "Showing {{n}} row(s)",
+      "truncated": "Results truncated — showing only the first rows",
+      "empty": "No rows"
+    },
+    "onboarding": {
+      "title": "Get started in 3 steps",
+      "step1": "1　Upload template",
+      "step2": "2　Upload sources",
+      "step3": "3　Map fields",
+      "cta": "Upload Template"
+    },
+    "rail": {
+      "label": "Setup progress",
+      "target": "Template",
+      "sources": "Sources",
+      "joins": "Joins",
+      "mappings": "Mappings",
+      "save": "Save"
+    }
+  },
+  "joins": {
+    "hint": {
+      "no_columns": "Pick a sheet and header row for your sources first"
+    }
+  },
+  "mapping": {
+    "type": "Type",
+    "selectSource": "select source…",
+    "selectAlias": "alias…",
+    "conditions": "Conditions",
+    "modeSource": "Source field",
+    "modeSourceCell": "Fixed cell",
+    "modeLiteral": "Literal",
+    "literalPlaceholder": "Fixed value",
+    "cellAddressHint": "Must be an Excel address, e.g. A3",
+    "modeHint": {
+      "source": "Pull the value from a column in the source file",
+      "source_cell": "Read from a fixed cell in the source file (e.g. A3)",
+      "literal": "Fill every output row with the same static value"
+    }
   },
   "batch": {
     "selectConfig": "Choose a config",
@@ -64,13 +127,62 @@
     "outputCount": "Will produce {{n}} output(s)",
     "start": "Start conversion",
     "newBatch": "New batch",
-    "lastFilename": "Last: {{name}}"
+    "lastFilename": "Last: {{name}}",
+    "configParseError": "Failed to parse config_json: {{message}}",
+    "shareFilePrefix": "Use the same file as ",
+    "shareFileSuffix": "",
+    "createSuccess": "Batch created, processing…",
+    "viewProgress": "View Progress"
+  },
+  "dialog": {
+    "overwriteConfig": {
+      "title": "Overwrite Config",
+      "description": "A config with this name already exists. Are you sure you want to overwrite it?",
+      "confirm": "Overwrite",
+      "cancel": "Cancel"
+    },
+    "deleteConfig": {
+      "title": "Delete Config",
+      "description": "Are you sure you want to delete \"{{name}}\"? This action cannot be undone.",
+      "confirm": "Delete",
+      "cancel": "Cancel",
+      "deleted": "\"{{name}}\" deleted"
+    },
+    "cancelJob": {
+      "title": "Cancel Job",
+      "description": "Are you sure you want to cancel this job? This action cannot be undone.",
+      "confirm": "Confirm Cancel",
+      "cancel": "Keep"
+    }
   },
   "errors": {
     "generic": "An error occurred. Please contact support.",
     "requestId": "Request ID: {{id}}",
     "duplicateConfig": "Project \"{{name}}\" already exists",
     "invalidName": "Project name may contain letters/digits/underscore/hyphen/space, 1–80 chars"
+  },
+  "err": {
+    "qualified": "Please select a source field",
+    "cellAddress": "Cell address format is incorrect, e.g. A3",
+    "xorMode": "Only one fill mode may be selected (source field / fixed cell / literal value)",
+    "requireOneMode": "Please choose a fill mode: source field, fixed cell, or literal value",
+    "invalidName": "Project name may contain letters/digits/underscore/hyphen/space, 1–80 chars",
+    "duplicateAlias": "Duplicate source alias — each source must have a unique alias",
+    "noPrimary": "At least one source with the \"primary\" role is required",
+    "joinUnknownAlias": "Join references unknown alias: {{alias}}",
+    "mappingSourceUnknownAlias": "Source field references unknown alias: {{alias}}",
+    "mappingCellUnknownAlias": "Fixed cell references unknown alias: {{alias}}",
+    "aliasDuplicate": "This alias is already used by another source; choose a different name",
+    "columnNotInSource": "This column is not in source \"{{alias}}\"'s column list"
+  },
+  "issue": {
+    "label": {
+      "mappingRow": "Field \"{{target}}\"",
+      "mappingRowN": "Row {{n}}",
+      "join": "Join #{{n}}",
+      "sources": "Sources",
+      "name": "Project name"
+    }
   },
   "mobile": {
     "title": "Please use a desktop browser",

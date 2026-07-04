@@ -2,6 +2,10 @@
 
 import { z } from "zod";
 
+/** Normalise JSON null → undefined so .optional() fields don't receive null from the backend. */
+const nullishToUndef = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((v) => v ?? undefined, schema);
+
 export const OPERATORS = [">=", "<=", "==", "!=", "contains", "regex", "in"] as const;
 export const operatorSchema = z.enum(OPERATORS);
 export type Operator = z.infer<typeof operatorSchema>;
@@ -26,7 +30,7 @@ export const targetTemplateSchema = z.object({
   header_row: z.number().int().min(1),
   preserve_styles: z.boolean().default(true),
   columns: z.array(z.string()).min(1),
-  sample_filename: z.string().optional(),
+  sample_filename: nullishToUndef(z.string().optional()),
 });
 
 export const sourceSpecSchema = z.object({
@@ -34,17 +38,17 @@ export const sourceSpecSchema = z.object({
   role: sourceRoleSchema,
   sheet: z.string().min(1),
   header_row: z.number().int().min(1),
-  sample_filename: z.string().optional(),
+  sample_filename: nullishToUndef(z.string().optional()),
 });
 
 export const joinRuleSchema = z.object({
-  left: z.string().refine(qualified, "必須為 alias.column"),
-  right: z.string().refine(qualified, "必須為 alias.column"),
+  left: z.string().refine(qualified, "err.qualified"),
+  right: z.string().refine(qualified, "err.qualified"),
   type: joinTypeSchema.default("left"),
 });
 
 export const conditionSchema = z.object({
-  field: z.string().refine(qualified, "必須為 alias.column"),
+  field: z.string().refine(qualified, "err.qualified"),
   op: operatorSchema,
   value: z.union([cellValueSchema, z.array(cellValueSchema)]),
 });
@@ -53,13 +57,13 @@ export const cellAddressPattern = /^[A-Z]+[1-9]\d*$/;
 
 export const sourceCellSchema = z.object({
   alias: z.string().min(1),
-  address: z.string().regex(cellAddressPattern, "需為 Excel 位址，例如 A3"),
+  address: z.string().regex(cellAddressPattern, "err.cellAddress"),
 });
 
 export const mappingSchema = z
   .object({
     target: z.string().min(1),
-    source: z.string().refine(qualified, "必須為 alias.column").optional(),
+    source: nullishToUndef(z.string().refine(qualified, "err.qualified").optional()),
     literal: cellValueSchema.optional(),
     source_cell: sourceCellSchema.nullable().optional(),
     conditions: z.array(conditionSchema).default([]),
@@ -73,14 +77,14 @@ export const mappingSchema = z
     if (setCount > 1) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "source / source_cell / literal 只能擇一",
+        message: "err.xorMode",
         path: ["source"],
       });
     }
     if (setCount === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "需指定 source、source_cell 或 literal 其中一個",
+        message: "err.requireOneMode",
         path: ["source"],
       });
     }
@@ -94,7 +98,7 @@ export const configSchema = z
     name: z
       .string()
       .transform((v) => v.trim())
-      .refine((v) => NAME_PATTERN.test(v), "專案名稱僅可含中英文/數字/底線/連字號/空格，長度 1–80"),
+      .refine((v) => NAME_PATTERN.test(v), "err.invalidName"),
     target_template: targetTemplateSchema,
     sources: z.array(sourceSpecSchema).min(1),
     joins: z.array(joinRuleSchema).default([]),
@@ -103,16 +107,16 @@ export const configSchema = z
   .superRefine((cfg, ctx) => {
     const aliases = new Set(cfg.sources.map((s) => s.alias));
     if (aliases.size !== cfg.sources.length) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "sources alias 不可重複", path: ["sources"] });
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "err.duplicateAlias", path: ["sources"] });
     }
     if (!cfg.sources.some((s) => s.role === "primary")) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "至少需要一個 role=primary 的 source", path: ["sources"] });
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "err.noPrimary", path: ["sources"] });
     }
     cfg.joins.forEach((j, i) => {
       for (const side of [j.left, j.right]) {
         const a = side.split(".", 1)[0];
         if (!aliases.has(a)) {
-          ctx.addIssue({ code: z.ZodIssueCode.custom, message: `join 引用了不存在的 alias: ${a}`, path: ["joins", i] });
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: "err.joinUnknownAlias", params: { alias: a }, path: ["joins", i] });
         }
       }
     });
@@ -120,13 +124,14 @@ export const configSchema = z
       if (m.source) {
         const a = m.source.split(".", 1)[0];
         if (!aliases.has(a)) {
-          ctx.addIssue({ code: z.ZodIssueCode.custom, message: `mapping.source 引用了不存在的 alias: ${a}`, path: ["mappings", i, "source"] });
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: "err.mappingSourceUnknownAlias", params: { alias: a }, path: ["mappings", i, "source"] });
         }
       }
       if (m.source_cell && !aliases.has(m.source_cell.alias)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `mapping.source_cell 引用了不存在的 alias: ${m.source_cell.alias}`,
+          message: "err.mappingCellUnknownAlias",
+          params: { alias: m.source_cell.alias },
           path: ["mappings", i, "source_cell", "alias"],
         });
       }
