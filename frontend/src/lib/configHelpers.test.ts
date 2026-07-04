@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  columnRefMissing,
+  computeColumnWarnings,
   fmtTime,
   inferColumnsFromConfig,
   mergeMappingsWithColumns,
+  type ColumnCheckSource,
 } from "./configHelpers";
 import type { Config, Mapping } from "./schemas";
 
@@ -109,6 +112,90 @@ describe("inferColumnsFromConfig", () => {
     };
     const inferred = inferColumnsFromConfig(cfg);
     expect(inferred).toEqual({ primary: ["x"] });
+  });
+});
+
+describe("columnRefMissing", () => {
+  const uploaded: ColumnCheckSource = {
+    alias: "primary",
+    columns: ["a", "b", "c"],
+    hasUpload: true,
+  };
+  const inferredOnly: ColumnCheckSource = {
+    alias: "lookup1",
+    columns: ["x"],
+    hasUpload: false,
+  };
+
+  it("flags a column absent from a freshly-uploaded source", () => {
+    expect(columnRefMissing("primary.zzz", [uploaded])).toBe(true);
+  });
+
+  it("passes a column present in the source", () => {
+    expect(columnRefMissing("primary.a", [uploaded])).toBe(false);
+  });
+
+  it("never flags inferred-only sources (loaded config safety)", () => {
+    // "y" is not in lookup1.columns, but the source has no upload → no warning.
+    expect(columnRefMissing("lookup1.y", [inferredOnly])).toBe(false);
+  });
+
+  it("does not flag an unknown alias (Zod backstop's job)", () => {
+    expect(columnRefMissing("ghost.a", [uploaded])).toBe(false);
+  });
+
+  it("ignores malformed / empty references", () => {
+    expect(columnRefMissing(undefined, [uploaded])).toBe(false);
+    expect(columnRefMissing("", [uploaded])).toBe(false);
+    expect(columnRefMissing("noDot", [uploaded])).toBe(false);
+    expect(columnRefMissing(".leadingDot", [uploaded])).toBe(false);
+    expect(columnRefMissing("trailingDot.", [uploaded])).toBe(false);
+  });
+
+  it("handles column names containing dots", () => {
+    const src: ColumnCheckSource = { alias: "p", columns: ["a.b"], hasUpload: true };
+    expect(columnRefMissing("p.a.b", [src])).toBe(false);
+    expect(columnRefMissing("p.a", [src])).toBe(true);
+  });
+});
+
+describe("computeColumnWarnings", () => {
+  const sources: ColumnCheckSource[] = [
+    { alias: "primary", columns: ["id", "name"], hasUpload: true },
+    { alias: "lookup1", columns: ["id"], hasUpload: true },
+  ];
+
+  it("reports missing join sides by index and side", () => {
+    const joins = [
+      { left: "primary.id", right: "lookup1.id" }, // both ok
+      { left: "primary.ghost", right: "lookup1.id" }, // left bad
+      { left: "primary.ghost", right: "lookup1.ghost" }, // both bad
+    ];
+    const w = computeColumnWarnings(joins, [], sources);
+    expect(w.joins[0]).toBeUndefined();
+    expect(w.joins[1]).toEqual(["left"]);
+    expect(w.joins[2]).toEqual(["left", "right"]);
+  });
+
+  it("reports missing mapping sources by index", () => {
+    const mappings = [
+      { source: "primary.name" }, // ok
+      { source: "primary.ghost" }, // bad
+      { source: undefined }, // literal → skip
+    ];
+    const w = computeColumnWarnings([], mappings, sources);
+    expect(w.mappings[0]).toBeUndefined();
+    expect(w.mappings[1]).toBe(true);
+    expect(w.mappings[2]).toBeUndefined();
+  });
+
+  it("produces no warnings when all refs resolve", () => {
+    const w = computeColumnWarnings(
+      [{ left: "primary.id", right: "lookup1.id" }],
+      [{ source: "primary.name" }],
+      sources,
+    );
+    expect(w).toEqual({ joins: {}, mappings: {} });
   });
 });
 

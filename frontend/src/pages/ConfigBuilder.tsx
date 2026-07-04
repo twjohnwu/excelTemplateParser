@@ -3,24 +3,55 @@
  * "Save & Download" and "Download current config" buttons.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
+import { Trash2 } from "lucide-react";
 import { ApiError } from "@/lib/api";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { SourcesTree, type SourceEntry } from "@/features/config-builder/SourcesTree";
 import { JoinsEditor } from "@/features/config-builder/JoinsEditor";
 import { MappingsList } from "@/features/config-builder/MappingsList";
-import { useConfig, useConfigList, useSaveConfig } from "@/hooks/useConfigs";
+import { ChecklistRail } from "@/features/config-builder/ChecklistRail";
+import { PreviewDialog } from "@/features/config-builder/PreviewDialog";
+import { useConfig, useConfigList, useSaveConfig, useDeleteConfig } from "@/hooks/useConfigs";
+import { usePreviewConfig } from "@/hooks/usePreviewConfig";
+import { useDebounce } from "@/hooks/useDebounce";
+import {
+  canPreview,
+  countIssuesByStep,
+  deriveStepStates,
+  type StepId,
+} from "@/lib/previewHelpers";
+import { bucketIssues, humanizeIssue } from "@/lib/issueHelpers";
 import { configSchema, type Config, type JoinRule, type Mapping } from "@/lib/schemas";
 import { z } from "zod";
 
 const DRAFT_KEY = "etp.configDraft.v1";
 const DEBOUNCE_MS = 1000;
+const VALIDATE_DEBOUNCE_MS = 500;
+
+/** Rail step → DOM id to scroll to. Target & sources share the left pane. */
+const STEP_SCROLL_TARGETS: Record<StepId, string> = {
+  target: "pane-sources",
+  sources: "pane-sources",
+  joins: "pane-joins",
+  mappings: "pane-mappings",
+  save: "cfg-toolbar",
+};
 
 type FormState = {
   name: string;
@@ -62,6 +93,13 @@ function toPersistable(s: FormState) {
 // gives false positives).
 const EMPTY_PERSISTABLE_JSON = JSON.stringify(toPersistable(emptyState()));
 
+/** Returns true when the form has never been touched: no name, no file,
+ * no non-default columns, no joins, no mappings content. Reuses the same
+ * EMPTY_PERSISTABLE_JSON sentinel so the definition stays in one place. */
+export function isPristineState(s: FormState): boolean {
+  return JSON.stringify(toPersistable(s)) === EMPTY_PERSISTABLE_JSON;
+}
+
 type ToConfigResult =
   | { ok: true; config: Config }
   | { ok: false; issues: z.ZodIssue[] };
@@ -98,13 +136,26 @@ function toConfig(state: FormState): ToConfigResult {
   return { ok: false, issues: result.error.issues };
 }
 
-function formatIssues(issues: z.ZodIssue[]): string {
-  return issues
-    .map((i) => {
-      const path = i.path.join(".");
-      return path ? `${path}: ${i.message}` : i.message;
-    })
-    .join("；");
+function formatIssues(
+  issues: z.ZodIssue[],
+  t: (key: string, opts?: Record<string, unknown>) => string,
+  mappings: Pick<Mapping, "target">[]
+): React.ReactNode {
+  if (issues.length === 0) return null;
+  return (
+    <ul className="list-disc pl-4">
+      {issues.map((issue, idx) => {
+        const h = humanizeIssue(issue, mappings);
+        const label = h.labelKey ? t(h.labelKey, h.labelParams) : "";
+        const msg = t(h.messageKey, h.messageParams);
+        return (
+          <li key={idx}>
+            {label ? `${label}：${msg}` : msg}
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 import { inferColumnsFromConfig, mergeMappingsWithColumns } from "@/lib/configHelpers";
@@ -117,10 +168,51 @@ export function ConfigBuilder() {
   const { data: existing } = useConfig(loadName);
   const { data: list } = useConfigList();
   const save = useSaveConfig();
+  const deleteConfig = useDeleteConfig();
 
   const [state, setState] = useState<FormState>(emptyState);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<React.ReactNode>(null);
   const [draftFound, setDraftFound] = useState(false);
+  const [pendingOverwrite, setPendingOverwrite] = useState<Config | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  // Onboarding card: visible once per session when the state is pristine on
+  // first render (no ?config=, no draft). Any user interaction dismisses it.
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  const preview = usePreviewConfig();
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewError, setPreviewError] = useState<React.ReactNode>(null);
+
+  // Debounced live validation: schema-parse the derived config ~500ms after
+  // the last edit. Guidance only (rail + pane badges) — the save-time full
+  // error list stays as the backstop.
+  const debouncedState = useDebounce(state, VALIDATE_DEBOUNCE_MS);
+  const liveIssues = useMemo(() => {
+    const r = toConfig(debouncedState);
+    return r.ok ? [] : r.issues;
+  }, [debouncedState]);
+  const issueCounts = useMemo(() => countIssuesByStep(liveIssues), [liveIssues]);
+  const liveBuckets = useMemo(() => bucketIssues(liveIssues), [liveIssues]);
+  const stepStates = useMemo(
+    () =>
+      deriveStepStates(
+        {
+          name: state.name,
+          target: { hasFile: state.target.file instanceof File, columns: state.target.columns },
+          sources: state.sources.map((s) => ({ alias: s.alias, hasFile: s.file instanceof File })),
+          joins: state.joins,
+          mappings: state.mappings,
+        },
+        issueCounts
+      ),
+    [state, issueCounts]
+  );
+
+  const previewEnabled = canPreview({
+    targetHasFile: state.target.file instanceof File,
+    sourceFileCount: state.sources.filter((s) => s.file instanceof File).length,
+    schemaOk: liveIssues.length === 0,
+  });
 
   // Snapshot the draft at mount time so the debounced autosave (which writes
   // emptyState ~1s after mount) can't clobber what we restore from.
@@ -134,6 +226,16 @@ export function ConfigBuilder() {
       setDraftFound(true);
     }
   }, [loadName]);
+
+  // Show onboarding card on first mount when truly pristine (no ?config=, no draft).
+  useEffect(() => {
+    const hasDraft = !!localStorage.getItem(DRAFT_KEY);
+    if (!loadName && !hasDraft) {
+      setShowOnboarding(true);
+    }
+    // Intentionally run once at mount only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Apply loaded config when it arrives.
   useEffect(() => {
@@ -176,6 +278,12 @@ export function ConfigBuilder() {
     return () => clearTimeout(handle);
   }, [state]);
 
+  // Any state mutation dismisses the onboarding card for the rest of this session.
+  const setStateAndDismissOnboarding: typeof setState = (value) => {
+    setShowOnboarding(false);
+    setState(value);
+  };
+
   const restoreDraft = () => {
     const raw = draftSnapshotRef.current;
     if (!raw) return;
@@ -209,7 +317,7 @@ export function ConfigBuilder() {
     setSaveError(null);
     const result = toConfig(state);
     if (!result.ok) {
-      setSaveError(formatIssues(result.issues));
+      setSaveError(formatIssues(result.issues, t, state.mappings));
       return;
     }
     const cfg = result.config;
@@ -219,9 +327,7 @@ export function ConfigBuilder() {
       downloadJson(cfg);
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
-        if (confirm(t("config.overwriteConfirm", { name: cfg.name }))) {
-          void handleSave(true);
-        }
+        setPendingOverwrite(cfg);
         return;
       }
       setSaveError(e instanceof Error ? e.message : String(e));
@@ -232,14 +338,52 @@ export function ConfigBuilder() {
     setSaveError(null);
     const result = toConfig(state);
     if (!result.ok) {
-      setSaveError(formatIssues(result.issues));
+      setSaveError(formatIssues(result.issues, t, state.mappings));
       return;
     }
     downloadJson(result.config);
   };
 
+  const handlePreview = async () => {
+    setPreviewError(null);
+    const result = toConfig(state);
+    if (!result.ok) {
+      // Gate is debounced, so a click can race a just-broken state — surface
+      // the same formatted issue list the save path uses.
+      setPreviewError(formatIssues(result.issues, t, state.mappings));
+      return;
+    }
+    if (!(state.target.file instanceof File)) return;
+    const sourceFiles: Record<string, File> = {};
+    for (const s of state.sources) {
+      if (s.file instanceof File) sourceFiles[s.alias] = s.file;
+    }
+    try {
+      await preview.mutateAsync({
+        config: result.config,
+        targetFile: state.target.file,
+        sourceFiles,
+      });
+      setPreviewOpen(true);
+    } catch (e) {
+      if (e instanceof ApiError) {
+        const idSuffix = e.requestId ? `（${t("errors.requestId", { id: e.requestId })}）` : "";
+        setPreviewError(`${e.message || t("errors.generic")}${idSuffix}`);
+      } else {
+        setPreviewError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  };
+
+  const scrollToStep = useCallback((id: StepId) => {
+    document
+      .getElementById(STEP_SCROLL_TARGETS[id])
+      ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, []);
+
   const handleLoadSelect = useCallback(
     (name: string) => {
+      setShowOnboarding(false);
       if (name === "__new__") {
         setState(emptyState());
         params.delete("config");
@@ -252,8 +396,66 @@ export function ConfigBuilder() {
     [params, setParams]
   );
 
+  const handleDeleteConfirm = async () => {
+    if (!pendingDelete) return;
+    const name = pendingDelete;
+    setPendingDelete(null);
+    try {
+      await deleteConfig.mutateAsync(name);
+      toast.success(t("dialog.deleteConfig.deleted", { name }));
+      // Reset to new-project state and clear the URL param.
+      setState(emptyState());
+      params.delete("config");
+      setParams(params);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
+      <Dialog open={pendingOverwrite !== null} onOpenChange={(open) => { if (!open) setPendingOverwrite(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("dialog.overwriteConfig.title")}</DialogTitle>
+            <DialogDescription>{t("dialog.overwriteConfig.description")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingOverwrite(null)}>
+              {t("dialog.overwriteConfig.cancel")}
+            </Button>
+            <Button
+              onClick={async () => {
+                setPendingOverwrite(null);
+                void handleSave(true);
+              }}
+            >
+              {t("dialog.overwriteConfig.confirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete config confirm dialog */}
+      <Dialog open={pendingDelete !== null} onOpenChange={(open) => { if (!open) setPendingDelete(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("dialog.deleteConfig.title")}</DialogTitle>
+            <DialogDescription>
+              {t("dialog.deleteConfig.description", { name: pendingDelete ?? "" })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingDelete(null)}>
+              {t("dialog.deleteConfig.cancel")}
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteConfirm} disabled={deleteConfig.isPending}>
+              {t("dialog.deleteConfig.confirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {draftFound && (
         <div className="rounded-md border bg-yellow-50 px-3 py-2 text-sm dark:bg-yellow-950/40">
           {t("config.draftRestorePrompt")}
@@ -266,29 +468,54 @@ export function ConfigBuilder() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-end gap-2">
+      <div id="cfg-toolbar" className="flex flex-wrap items-end gap-2">
         <div>
           <Label htmlFor="cfg-name">{t("config.name")}</Label>
           <Input
             id="cfg-name"
             value={state.name}
-            onChange={(e) => setState({ ...state, name: e.target.value })}
+            onChange={(e) => setStateAndDismissOnboarding({ ...state, name: e.target.value })}
             placeholder={t("config.namePlaceholder") ?? ""}
-            className="w-64"
+            className={`w-64${liveBuckets.name.length > 0 ? " border-destructive" : ""}`}
           />
+          {liveBuckets.name.map((issue, i) => (
+            <p key={i} className="mt-0.5 text-xs text-destructive">
+              {t(issue.message)}
+            </p>
+          ))}
         </div>
-        <div>
-          <Label>{t("config.loadExisting")}</Label>
-          <Select value={loadName ?? ""} onChange={(e) => handleLoadSelect(e.target.value)} className="w-48">
-            <option value="__new__">{t("config.newProject")}</option>
-            {(list?.configs ?? []).map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </Select>
+        <div className="flex items-end gap-1">
+          <div>
+            <Label>{t("config.loadExisting")}</Label>
+            <Select value={loadName ?? ""} onChange={(e) => handleLoadSelect(e.target.value)} className="w-48">
+              <option value="__new__">{t("config.newProject")}</option>
+              {(list?.configs ?? []).map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </Select>
+          </div>
+          {loadName && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 text-muted-foreground hover:text-destructive"
+              title={t("dialog.deleteConfig.title")}
+              onClick={() => setPendingDelete(loadName)}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
         </div>
         <div className="ml-auto flex gap-2">
+          <Button
+            variant="outline"
+            onClick={handlePreview}
+            disabled={!previewEnabled || preview.isPending}
+          >
+            {preview.isPending ? t("config.loadingPreview") : t("config.preview.button")}
+          </Button>
           <Button variant="outline" onClick={handleDownloadCurrent}>
             {t("config.downloadCurrent")}
           </Button>
@@ -298,17 +525,57 @@ export function ConfigBuilder() {
         </div>
       </div>
 
-      {saveError && <p className="text-sm text-destructive">{saveError}</p>}
+      {saveError && <div className="text-sm text-destructive">{saveError}</div>}
+      {previewError && <div className="text-sm text-destructive">{previewError}</div>}
 
-      <div className="grid h-[calc(100vh-220px)] gap-3 lg:grid-cols-[minmax(300px,1fr)_minmax(260px,1fr)_minmax(360px,1.4fr)] md:grid-cols-2">
+      <div className="flex gap-3">
+        <div className="self-start sticky top-[4.5rem]">
+          <ChecklistRail states={stepStates} errorCounts={issueCounts} onStepClick={scrollToStep} />
+        </div>
+        {showOnboarding && isPristineState(state) && !draftFound && !loadName ? (
+          <div className="flex min-w-0 flex-1 items-center justify-center min-h-[60vh]">
+            <div className="rounded-xl border bg-card p-8 shadow-sm text-center max-w-md w-full space-y-6">
+              <h2 className="text-xl font-semibold">{t("config.onboarding.title")}</h2>
+              <ol className="space-y-2 text-sm text-muted-foreground text-left list-none">
+                <li className="flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">1</span>
+                  {t("config.onboarding.step1")}
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-muted-foreground text-xs font-bold">2</span>
+                  {t("config.onboarding.step2")}
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-muted-foreground text-xs font-bold">3</span>
+                  {t("config.onboarding.step3")}
+                </li>
+              </ol>
+              <Button
+                onClick={() => {
+                  setShowOnboarding(false);
+                  document
+                    .getElementById(STEP_SCROLL_TARGETS.target)
+                    ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                }}
+              >
+                {t("config.onboarding.cta")}
+              </Button>
+            </div>
+          </div>
+        ) : (
+        <div className="grid min-w-0 flex-1 gap-3 lg:grid-cols-[minmax(300px,1fr)_minmax(260px,1fr)_minmax(360px,1.4fr)] md:grid-cols-2">
         <SourcesTree
+          id="pane-sources"
+          targetErrorCount={issueCounts.target}
+          sourcesErrorCount={issueCounts.sources}
+          sourcesSchemaIssues={liveBuckets.sources}
           targetFile={state.target.file}
           targetSheet={state.target.sheet}
           targetHeaderRow={state.target.header_row}
           targetColumns={state.target.columns}
-          onTargetFile={(f) => setState({ ...state, target: { ...state.target, file: f } })}
+          onTargetFile={(f) => { setShowOnboarding(false); setState({ ...state, target: { ...state.target, file: f } }); }}
           onTargetMeta={(m) =>
-            setState((prev) => ({
+            setStateAndDismissOnboarding((prev) => ({
               ...prev,
               target: { ...prev.target, ...m },
               // Auto-seed mappings so the right pane lines up with the template's columns.
@@ -317,19 +584,30 @@ export function ConfigBuilder() {
             }))
           }
           sources={state.sources}
-          onSourcesChange={(sources) => setState({ ...state, sources })}
+          onSourcesChange={(sources) => setStateAndDismissOnboarding({ ...state, sources })}
         />
         <JoinsEditor
+          id="pane-joins"
+          errorCount={issueCounts.joins}
+          joinsByIndex={liveBuckets.joinsByIndex}
           sources={state.sources}
           joins={state.joins}
-          onChange={(joins) => setState({ ...state, joins })}
+          onChange={(joins) => setStateAndDismissOnboarding({ ...state, joins })}
         />
         <MappingsList
+          id="pane-mappings"
+          errorCount={issueCounts.mappings}
+          mappingsByIndex={liveBuckets.mappingsByIndex}
           mappings={state.mappings}
           sources={state.sources}
-          onChange={(mappings) => setState({ ...state, mappings })}
+          targetColumns={state.target.columns}
+          onChange={(mappings) => setStateAndDismissOnboarding({ ...state, mappings })}
         />
+        </div>
+        )}
       </div>
+
+      <PreviewDialog open={previewOpen} onOpenChange={setPreviewOpen} data={preview.data ?? null} />
     </div>
   );
 }

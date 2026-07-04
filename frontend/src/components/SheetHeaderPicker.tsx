@@ -85,7 +85,7 @@ export function SheetHeaderPicker({ file, value, onChange }: Props) {
 
   const sheet = sheets.find((s) => s.name === value.sheet) ?? sheets[0];
   if (loading && sheets.length === 0) {
-    return <p className="text-xs text-muted-foreground">Loading preview…</p>;
+    return <p className="text-xs text-muted-foreground">{t("config.loadingPreview")}</p>;
   }
   if (error) {
     return <p className="text-xs text-destructive">{error}</p>;
@@ -116,6 +116,16 @@ export function SheetHeaderPicker({ file, value, onChange }: Props) {
           ))}
         </Select>
       )}
+
+      <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200">
+        {value.header_row > 0 && headerRowIndex >= 0 && headerRowIndex < sheet.preview_rows.length ? (
+          <span className="font-medium">
+            {t("config.headerRowConfirmed", { row: value.header_row })}
+          </span>
+        ) : (
+          t("config.headerRowBanner")
+        )}
+      </div>
 
       <div className="max-h-64 overflow-auto rounded-md border text-xs">
         <table className="w-full">

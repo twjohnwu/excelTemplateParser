@@ -3,6 +3,7 @@
  */
 
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronRight, Plus, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,15 @@ type Props = {
   availableAliases: string[];
   onChange: (next: Mapping) => void;
   onRemove: () => void;
+  /** True when this row's target came from the uploaded template's columns.
+   * The target is then shown as a read-only chip instead of an editable input. */
+  readOnlyTarget?: boolean;
+  /** Warning text shown under a source-mode row whose `alias.col` doesn't
+   * exist in the referenced source's (freshly uploaded) column list. */
+  columnWarning?: string;
+  /** Translated schema error messages for this row. Shown in all modes,
+   * even when collapsed, with a destructive border on the row container. */
+  schemaErrors?: string[];
 };
 
 type Mode = "source" | "source_cell" | "literal";
@@ -31,7 +41,8 @@ export const modeOf = (m: Mapping): Mode => {
   return "source";
 };
 
-export function MappingRow({ mapping, availableFields, availableAliases, onChange, onRemove }: Props) {
+export function MappingRow({ mapping, availableFields, availableAliases, onChange, onRemove, readOnlyTarget, columnWarning, schemaErrors }: Props) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const Caret = open ? ChevronDown : ChevronRight;
   const mode = modeOf(mapping);
@@ -55,17 +66,32 @@ export function MappingRow({ mapping, availableFields, availableAliases, onChang
   const cell = mapping.source_cell ?? undefined;
   const addressValid = !cell?.address || cellAddressPattern.test(cell.address);
 
+  const hasSchemaErrors = schemaErrors && schemaErrors.length > 0;
+
   return (
-    <div className={cn("rounded-md border", open && "bg-blue-50/40 dark:bg-blue-950/20")}>
+    <div className={cn(
+      "rounded-md border",
+      open && "bg-blue-50/40 dark:bg-blue-950/20",
+      hasSchemaErrors && "border-destructive ring-1 ring-destructive",
+    )}>
       <div className="flex items-center gap-2 px-2 py-1">
         <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setOpen((v) => !v)}>
           <Caret className="h-3 w-3" />
         </Button>
-        <Input
-          value={mapping.target}
-          onChange={(e) => onChange({ ...mapping, target: e.target.value })}
-          className="h-7 w-40 text-xs font-medium"
-        />
+        {readOnlyTarget ? (
+          <span
+            title={mapping.target}
+            className="inline-flex h-7 w-40 items-center truncate rounded-md border bg-emerald-50 px-2 text-xs font-medium text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100"
+          >
+            {mapping.target}
+          </span>
+        ) : (
+          <Input
+            value={mapping.target}
+            onChange={(e) => onChange({ ...mapping, target: e.target.value })}
+            className="h-7 w-40 text-xs font-medium"
+          />
+        )}
         <span className="text-muted-foreground">←</span>
 
         {mode === "source" && (
@@ -74,7 +100,7 @@ export function MappingRow({ mapping, availableFields, availableAliases, onChang
             onChange={(e) => onChange({ ...mapping, source: e.target.value })}
             className="h-7 flex-1 text-xs"
           >
-            <option value="">select source…</option>
+            <option value="">{t("mapping.selectSource")}</option>
             {availableFields.map((f) => (
               <option key={f} value={f}>
                 {f}
@@ -95,7 +121,7 @@ export function MappingRow({ mapping, availableFields, availableAliases, onChang
               }
               className="h-7 w-32 text-xs"
             >
-              <option value="">alias…</option>
+              <option value="">{t("mapping.selectAlias")}</option>
               {availableAliases.map((a) => (
                 <option key={a} value={a}>
                   {a}
@@ -112,7 +138,7 @@ export function MappingRow({ mapping, availableFields, availableAliases, onChang
                 })
               }
               placeholder="A3"
-              title={addressValid ? undefined : "需為 Excel 位址，如 A3"}
+              title={addressValid ? undefined : t("mapping.cellAddressHint")}
               className={cn(
                 "h-7 flex-1 text-xs bg-violet-50 dark:bg-violet-950/30",
                 !addressValid && "border-destructive",
@@ -131,7 +157,7 @@ export function MappingRow({ mapping, availableFields, availableAliases, onChang
                 : JSON.stringify(mapping.literal)
             }
             onChange={(e) => onChange({ ...mapping, literal: e.target.value })}
-            placeholder="固定值"
+            placeholder={t("mapping.literalPlaceholder")}
             className="h-7 flex-1 text-xs bg-amber-50 dark:bg-amber-950/30"
           />
         )}
@@ -141,46 +167,61 @@ export function MappingRow({ mapping, availableFields, availableAliases, onChang
         </Button>
       </div>
 
+      {mode === "source" && columnWarning && (
+        <p className="px-2 pb-1 text-xs text-destructive">{columnWarning}</p>
+      )}
+
+      {hasSchemaErrors && (
+        <div className="px-2 pb-1 space-y-0.5">
+          {schemaErrors!.map((msg, i) => (
+            <p key={i} className="text-xs text-destructive">{msg}</p>
+          ))}
+        </div>
+      )}
+
       {open && (
         <div className="space-y-3 border-t px-3 py-2 text-xs">
-          <div className="flex items-center gap-2">
-            <span className="font-medium">類型</span>
-            <div className="inline-flex overflow-hidden rounded-md border">
-              <button
-                type="button"
-                onClick={() => switchTo("source")}
-                className={cn(
-                  "px-2 py-0.5",
-                  mode === "source" ? "bg-blue-500 text-white" : "bg-transparent",
-                )}
-              >
-                來源欄位
-              </button>
-              <button
-                type="button"
-                onClick={() => switchTo("source_cell")}
-                className={cn(
-                  "px-2 py-0.5 border-l",
-                  mode === "source_cell" ? "bg-violet-500 text-white" : "bg-transparent",
-                )}
-              >
-                固定儲存格
-              </button>
-              <button
-                type="button"
-                onClick={() => switchTo("literal")}
-                className={cn(
-                  "px-2 py-0.5 border-l",
-                  mode === "literal" ? "bg-amber-500 text-white" : "bg-transparent",
-                )}
-              >
-                固定值
-              </button>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="font-medium">{t("mapping.type")}</span>
+              <div className="inline-flex overflow-hidden rounded-md border">
+                <button
+                  type="button"
+                  onClick={() => switchTo("source")}
+                  className={cn(
+                    "px-2 py-0.5",
+                    mode === "source" ? "bg-blue-500 text-white" : "bg-transparent",
+                  )}
+                >
+                  {t("mapping.modeSource")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => switchTo("source_cell")}
+                  className={cn(
+                    "px-2 py-0.5 border-l",
+                    mode === "source_cell" ? "bg-violet-500 text-white" : "bg-transparent",
+                  )}
+                >
+                  {t("mapping.modeSourceCell")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => switchTo("literal")}
+                  className={cn(
+                    "px-2 py-0.5 border-l",
+                    mode === "literal" ? "bg-amber-500 text-white" : "bg-transparent",
+                  )}
+                >
+                  {t("mapping.modeLiteral")}
+                </button>
+              </div>
             </div>
+            <p className="text-muted-foreground">{t(`mapping.modeHint.${mode}`)}</p>
           </div>
 
           <div>
-            <div className="mb-1 font-medium">Conditions</div>
+            <div className="mb-1 font-medium">{t("mapping.conditions")}</div>
             <div className="flex flex-wrap gap-2">
               {mapping.conditions.map((c, i) => (
                 <ConditionChip
@@ -214,13 +255,13 @@ export function MappingRow({ mapping, availableFields, availableAliases, onChang
                   })
                 }
               >
-                <Plus className="mr-1 h-3 w-3" /> condition
+                <Plus className="mr-1 h-3 w-3" /> {t("config.addCondition")}
               </Button>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="font-medium">Default</span>
+            <span className="font-medium">{t("config.default")}</span>
             <Input
               value={typeof mapping.default === "string" ? mapping.default : JSON.stringify(mapping.default)}
               onChange={(e) => onChange({ ...mapping, default: e.target.value })}
