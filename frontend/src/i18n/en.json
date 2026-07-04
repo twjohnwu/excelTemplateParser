@@ -36,7 +36,7 @@
       "duration": "Duration",
       "message": "Message"
     },
-    "downloadGrace": "Re-download available: {{minutes}} min left",
+    "downloadGrace": "Re-download available until {{time}}",
     "downloadExpired": "Download window expired"
   },
   "config": {

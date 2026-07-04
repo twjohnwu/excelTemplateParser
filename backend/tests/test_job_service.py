@@ -1,3 +1,6 @@
+from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
+
 import pytest
 
 from app.schemas import ConfigSchema
@@ -77,6 +80,33 @@ def test_eta_computed_after_threshold(svc):
     snap = svc.get_snapshot("j")
     # avg 2s × 5 remaining = 10s
     assert snap.eta_seconds == 10
+
+
+def test_download_expires_at_absent_before_first_download(svc):
+    svc.create("j", _config(), ["a.xlsx"])
+    snap = svc.get_snapshot("j")
+    assert snap.download_expires_at is None
+
+
+def test_download_expires_at_present_after_mark_download_started(svc, monkeypatch):
+    frozen = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+    svc.create("j", _config(), ["a.xlsx"])
+
+    # Patch datetime.now inside job_service so mark_download_started uses the frozen time.
+    with patch("app.services.job_service.datetime") as mock_dt:
+        mock_dt.now.return_value = frozen
+        mock_dt.fromisoformat = datetime.fromisoformat
+        svc.mark_download_started("j")
+
+    # Patch get_settings to return a fixed grace of 60 minutes.
+    from app.settings import Settings
+    fake_settings = Settings.model_construct(download_grace_minutes=60)
+    with patch("app.services.job_service.get_settings", return_value=fake_settings):
+        snap = svc.get_snapshot("j")
+
+    expected = (frozen + timedelta(minutes=60)).isoformat()
+    assert snap.download_expires_at == expected
 
 
 def test_get_snapshot_missing(svc):

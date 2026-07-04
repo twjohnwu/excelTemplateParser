@@ -206,3 +206,5 @@ class JobSnapshot(BaseModel):
     eta_seconds: int | None = None
     error: str | None = None
     config_name: str | None = None
+    # Present only when a download has been started AND the job dir still exists.
+    download_expires_at: str | None = None

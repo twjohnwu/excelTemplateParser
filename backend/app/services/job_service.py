@@ -12,7 +12,7 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from statistics import mean
 from typing import Iterator
@@ -25,6 +25,7 @@ from ..schemas import (
     JobState,
     SubtaskState,
 )
+from ..settings import get_settings
 
 JOB_KEY = "job:{id}"
 JOB_DONE_SET = "job:{id}:done"
@@ -152,6 +153,11 @@ class JobService:
 
     def get_snapshot(self, job_id: str) -> JobSnapshot:
         state = self._read_state(job_id)
+        download_expires_at: str | None = None
+        if state.download_started_at is not None and self._job_dir(job_id).exists():
+            grace = get_settings().download_grace_minutes
+            started = datetime.fromisoformat(state.download_started_at)
+            download_expires_at = (started + timedelta(minutes=grace)).isoformat()
         return JobSnapshot(
             job_id=job_id,
             status=state.status,
@@ -160,6 +166,7 @@ class JobService:
             failed=state.failed,
             eta_seconds=self._eta_seconds(state),
             config_name=state.config_name,
+            download_expires_at=download_expires_at,
         )
 
     def list_active_ids(self) -> list[str]:

@@ -5,7 +5,7 @@ import { useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -58,13 +58,9 @@ export function JobDetail() {
     }
   };
 
-  const onDownload = async () => {
+  const onDownload = () => {
     if (!id) return;
-    try {
-      window.location.href = `/api/jobs/${id}/zip`;
-    } catch (e) {
-      if (e instanceof ApiError) alert(e.message);
-    }
+    window.location.href = `/api/jobs/${id}/zip`;
   };
 
   if (loading) return <p>{t("jobs.loading")}</p>;
@@ -91,7 +87,7 @@ export function JobDetail() {
             <Button variant="outline" onClick={() => setShowCancelDialog(false)}>
               {t("dialog.cancelJob.cancel")}
             </Button>
-            <Button className="bg-red-600 text-white hover:bg-red-700" onClick={confirmCancel}>
+            <Button variant="destructive" onClick={confirmCancel}>
               {t("dialog.cancelJob.confirm")}
             </Button>
           </DialogFooter>
@@ -127,17 +123,28 @@ export function JobDetail() {
             {t("jobs.cancel")}
           </Button>
         )}
-        {snapshot.status === "done" && (
-          <>
-            <Button onClick={onDownload}>
-              {t("jobs.download")}
-              {snapshot.failed > 0 ? ` (${snapshot.done}✓ / ${snapshot.failed}✗)` : ""}
-            </Button>
-            <Button variant="ghost" onClick={() => removeRecent(id)}>
-              {t("jobs.remove")}
-            </Button>
-          </>
-        )}
+        {snapshot.status === "done" && (() => {
+          const expiresAt = snapshot.download_expires_at ? new Date(snapshot.download_expires_at) : null;
+          const expired = expiresAt != null && new Date() >= expiresAt;
+          return (
+            <>
+              <Button onClick={onDownload} disabled={expired}>
+                {t("jobs.download")}
+                {snapshot.failed > 0 ? ` (${snapshot.done}✓ / ${snapshot.failed}✗)` : ""}
+              </Button>
+              <Button variant="ghost" onClick={() => removeRecent(id)}>
+                {t("jobs.remove")}
+              </Button>
+              {expiresAt != null && (
+                <span className="text-xs text-muted-foreground self-center">
+                  {expired
+                    ? t("jobs.downloadExpired")
+                    : t("jobs.downloadGrace", { time: expiresAt.toLocaleString() })}
+                </span>
+              )}
+            </>
+          );
+        })()}
       </div>
 
       {state && (

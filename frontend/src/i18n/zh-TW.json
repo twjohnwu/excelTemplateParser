@@ -36,7 +36,7 @@
       "duration": "耗時",
       "message": "訊息"
     },
-    "downloadGrace": "可重新下載：剩 {{minutes}} 分鐘",
+    "downloadGrace": "可重新下載至 {{time}}",
     "downloadExpired": "下載時效已過"
   },
   "config": {

@@ -159,6 +159,8 @@ export type JobSnapshot = {
   eta_seconds?: number | null;
   error?: string | null;
   config_name?: string | null;
+  /** ISO 8601 expiry time for re-download; absent before first download or after job dir is purged. */
+  download_expires_at?: string | null;
 };
 
 export type SubtaskState = {
