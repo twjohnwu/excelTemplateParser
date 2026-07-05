@@ -24,23 +24,23 @@ backend/
     main.py      # FastAPI entry + lifespan (recovery + scheduler)
     settings.py
     schemas.py   # Pydantic ConfigSchema (mirror of frontend zod schema)
-  tests/         # pytest unit tests (16 files: core / services / api / workers)
+  tests/         # pytest unit tests (17 files: core / services / api / workers)
   pyproject.toml
   Dockerfile
 frontend/
   src/
     pages/             # ConfigBuilder, BatchRunner, JobDetail
-    features/          # config-builder/{SourcesTree,JoinsEditor,MappingsList,MappingRow}, batch-runner/{NewBatchForm,JobsList}
+    features/          # config-builder/{SourcesTree,JoinsEditor,MappingsList,MappingRow,ChecklistRail,PreviewDialog}, batch-runner/{NewBatchForm,JobsList}
     components/        # TopMenuBar, JobsPanel, FileDropzone, SheetHeaderPicker, ConditionChip, ui/*
-    hooks/             # useConfigs, useJobSnapshot
+    hooks/             # useConfigs, useJobSnapshot, useDebounce, usePreviewConfig
     lib/               # schemas.ts (zod ConfigSchema — mirror of backend), api.ts, recentJobs.ts, configHelpers/previewHelpers/issueHelpers.ts, i18nGuard.test.ts
     i18n/              # zh-TW.json, en.json, index.ts
-    theme/             # ThemeProvider.tsx, tokens.css
+    theme/             # ThemeProvider.tsx, ThemeProvider.test.tsx
   Dockerfile
   nginx.conf
 docs/
-  spec/                # proposal / design / tasks / spec (synced mirror)
-  decisions_log.md     # 22 design decisions + 8 post-launch iterations + 6 UX-overhaul entries
+  spec/                # proposal / design / tasks / spec (design-phase snapshot; code is authoritative)
+  decisions_log.md     # 22 design decisions + 9 post-launch iterations + 6 UX-overhaul entries
   case_study.md, learnings.md, plan.md
   ss/                  # Screenshots for README walkthrough
 scripts/               # up.sh, smoke_test.py, resume_test.py, VERIFICATION_REPORT.md

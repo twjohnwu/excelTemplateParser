@@ -169,7 +169,7 @@ excelTemplateParser/
 │       ├── logging_config.py    ← structlog JSON
 │       ├── api/{templates,configs,jobs}.py
 │       ├── services/{config,job,recovery,cleanup}_service.py + scheduler.py
-│       ├── core/{parser,joiner,mapper,writer,zipper,preflight,exceptions}.py
+│       ├── core/{parser,joiner,mapper,writer,zipper,preflight,preview,exceptions}.py
 │       ├── middleware/{request_id,upload_limit}.py
 │       └── workers/{queue,tasks,run}.py
 ├── frontend/
@@ -178,11 +178,11 @@ excelTemplateParser/
 │   ├── nginx.conf       ← static + /api/ proxy to api:8000
 │   └── src/
 │       ├── pages/{ConfigBuilder,BatchRunner,JobDetail}.tsx
-│       ├── features/config-builder/{SourcesTree,JoinsEditor,MappingsList,MappingRow}.tsx
+│       ├── features/config-builder/{SourcesTree,JoinsEditor,MappingsList,MappingRow,ChecklistRail,PreviewDialog}.tsx
 │       ├── features/batch-runner/{NewBatchForm,JobsList}.tsx
 │       ├── components/{TopMenuBar,JobsPanel,FileDropzone,SheetHeaderPicker,ConditionChip,ui/*}.tsx
-│       ├── hooks/{useJobSnapshot,useConfigs}.ts
-│       ├── lib/{api,recentJobs,schemas,utils}.ts
+│       ├── hooks/{useJobSnapshot,useConfigs,useDebounce,usePreviewConfig}.ts
+│       ├── lib/{api,recentJobs,schemas,utils,configHelpers,previewHelpers,issueHelpers}.ts
 │       ├── i18n/{index.ts, zh-TW.json, en.json}
 │       └── theme/ThemeProvider.tsx
 └── data/                ← Runtime artefacts (git-ignored)
@@ -258,10 +258,10 @@ Full design narrative and decision log:
 
 - [`docs/plan.md`](docs/plan.md) — final plan (architecture, flows, schema)
 - [`docs/case_study.md`](docs/case_study.md) — seven-round design dialogue + a post-launch round of eight user-reported iterations
-- [`docs/decisions_log.md`](docs/decisions_log.md) — 30 entries spanning the full arc: 22 design-phase turning points + 8 post-launch iterations, separated by a divider
+- [`docs/decisions_log.md`](docs/decisions_log.md) — 37 entries spanning the full arc: 22 design-phase turning points + 9 post-launch iterations + 6 UX-overhaul entries, in three parts
 - [`docs/learnings.md`](docs/learnings.md) — ten cross-decision distillations (six design + four iteration)
 
-OpenSpec spec layer (mirrored from the parent monorepo):
+OpenSpec spec layer (mirrored from the parent monorepo; design-phase snapshot, code is authoritative):
 
 - [`docs/spec/proposal.md`](docs/spec/proposal.md)
 - [`docs/spec/design.md`](docs/spec/design.md)

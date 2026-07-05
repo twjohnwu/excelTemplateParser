@@ -168,7 +168,7 @@ excelTemplateParser/
 │       ├── logging_config.py    ← structlog JSON
 │       ├── api/{templates,configs,jobs}.py
 │       ├── services/{config,job,recovery,cleanup}_service.py + scheduler.py
-│       ├── core/{parser,joiner,mapper,writer,zipper,preflight,exceptions}.py
+│       ├── core/{parser,joiner,mapper,writer,zipper,preflight,preview,exceptions}.py
 │       ├── middleware/{request_id,upload_limit}.py
 │       └── workers/{queue,tasks,run}.py
 ├── frontend/
@@ -177,11 +177,11 @@ excelTemplateParser/
 │   ├── nginx.conf       ← / static + /api/ proxy to api:8000
 │   └── src/
 │       ├── pages/{ConfigBuilder,BatchRunner,JobDetail}.tsx
-│       ├── features/config-builder/{SourcesTree,JoinsEditor,MappingsList,MappingRow}.tsx
+│       ├── features/config-builder/{SourcesTree,JoinsEditor,MappingsList,MappingRow,ChecklistRail,PreviewDialog}.tsx
 │       ├── features/batch-runner/{NewBatchForm,JobsList}.tsx
 │       ├── components/{TopMenuBar,JobsPanel,FileDropzone,SheetHeaderPicker,ConditionChip,ui/*}.tsx
-│       ├── hooks/{useJobSnapshot,useConfigs}.ts
-│       ├── lib/{api,recentJobs,schemas,utils}.ts
+│       ├── hooks/{useJobSnapshot,useConfigs,useDebounce,usePreviewConfig}.ts
+│       ├── lib/{api,recentJobs,schemas,utils,configHelpers,previewHelpers,issueHelpers}.ts
 │       ├── i18n/{index.ts, zh-TW.json, en.json}
 │       └── theme/ThemeProvider.tsx
 └── data/                ← Runtime artefacts (git-ignored)
@@ -257,10 +257,10 @@ backend/.venv/bin/python scripts/resume_test.py     # 重啟續傳場景
 
 - [`docs/plan.md`](docs/plan.md) — 最終 plan（架構、流程、schema）
 - [`docs/case_study.md`](docs/case_study.md) — 七輪設計對話實況 + 上線後使用者實測的第八輪（八個 sub-round）
-- [`docs/decisions_log.md`](docs/decisions_log.md) — 30 條跨越整段歷程：22 條設計轉折 + 8 條上線後迭代，以分隔線區隔
+- [`docs/decisions_log.md`](docs/decisions_log.md) — 37 條跨越整段歷程：22 條設計轉折 + 9 條上線後迭代 + 6 條 UX 改版，分三部分
 - [`docs/learnings.md`](docs/learnings.md) — 10 條跨 decision 提煉（6 條設計 + 4 條迭代）
 
-OpenSpec 規格層（自上層 monorepo 同步）：
+OpenSpec 規格層（自上層 monorepo 同步；設計期快照，以程式碼為準）：
 
 - [`docs/spec/proposal.md`](docs/spec/proposal.md)
 - [`docs/spec/design.md`](docs/spec/design.md)

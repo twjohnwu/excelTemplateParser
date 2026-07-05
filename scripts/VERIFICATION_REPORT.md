@@ -5,7 +5,7 @@ End-to-end verification of `excelTemplateParser`. Run after
 
 | # | Scenario | Method | Result |
 |---|---|---|---|
-| 8.1 | `pytest backend/tests/` all green | unit | ✓ 117 passed |
+| 8.1 | `pytest backend/tests/` all green | unit | ✓ 171 passed |
 | 8.2 | docker compose up | smoke_test.py | ✓ `/api/health` returns `{"ok":true}` |
 | 8.3 | Flow A: save config | smoke_test.py | ✓ POST/GET/list all 200 |
 | 8.4 | Flow B: batch 3 primary + 2 lookup | smoke_test.py | ✓ status=done, ZIP contains 3 outputs + `_summary.txt` |
@@ -61,7 +61,9 @@ End-to-end verification of `excelTemplateParser`. Run after
 These are exactly the kind of race conditions called out as unverified
 in `docs/case_study.md` ("Subtask 級續傳的 race condition... 需要實作時驗"
 and disaster persistence). The §8 verification stage caught them, the
-fixes shipped, and `pytest` (117 tests) is still green after the changes.
+fixes shipped, and `pytest` (171 tests) is still green after the changes.
+
+> Updated 2026-07-05: test count grew to 171 after the UX-overhaul additions.
 
 ## How to reproduce
 
