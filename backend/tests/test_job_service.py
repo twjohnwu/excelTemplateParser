@@ -2,9 +2,11 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
+import structlog
 
+from app.core.exceptions import IllegalTransition
 from app.schemas import ConfigSchema
-from app.services.job_service import JobNotFound, JobService
+from app.services.job_service import SUBTASK_TRANSITIONS, JobNotFound, JobService, _transition
 
 
 def _config() -> ConfigSchema:
@@ -121,6 +123,44 @@ def test_mark_download_started_only_once(svc):
     svc.mark_download_started("j")
     second = svc.get_state("j").download_started_at
     assert first == second
+
+
+def test_mark_done_twice_is_not_last_and_keeps_first_duration(svc):
+    svc.create("j", _config(), ["a.xlsx"])
+    svc.mark_running("j", "a.xlsx")
+    first = svc.mark_done("j", "a.xlsx", duration_ms=100)
+    second = svc.mark_done("j", "a.xlsx", duration_ms=999)
+    assert first is True
+    assert second is False
+    assert svc.get_state("j").subtasks["a.xlsx"].duration_ms == 100
+
+
+def test_transition_done_to_running_raises_illegal_transition():
+    with pytest.raises(IllegalTransition):
+        _transition("done", "running", SUBTASK_TRANSITIONS)
+
+
+def test_transition_same_state_returns_false():
+    assert _transition("done", "done", SUBTASK_TRANSITIONS) is False
+
+
+def test_mark_done_after_cancel_leaves_job_cancelled(svc):
+    svc.create("j", _config(), ["a.xlsx"])
+    svc.mark_cancelled("j")
+    svc.mark_done("j", "a.xlsx", duration_ms=100)
+    assert svc.get_state("j").status == "cancelled"
+
+
+def test_mark_running_on_done_subtask_logs_illegal_transition_and_is_noop(svc):
+    svc.create("j", _config(), ["a.xlsx"])
+    svc.mark_running("j", "a.xlsx")
+    svc.mark_done("j", "a.xlsx", duration_ms=100)
+
+    with structlog.testing.capture_logs() as logs:
+        svc.mark_running("j", "a.xlsx")
+
+    assert svc.get_state("j").subtasks["a.xlsx"].status == "done"
+    assert any(entry.get("event") == "illegal_transition_ignored" for entry in logs)
 
 
 def test_list_active_ids(svc):

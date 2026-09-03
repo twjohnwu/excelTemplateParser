@@ -18,7 +18,7 @@ from ..logging_config import configure_logging
 from ..services.job_service import JobService
 from ..services.recovery_service import scan_and_resume
 from ..settings import get_settings
-from .queue import QUEUE_NAME, enqueue_subtask, make_queue
+from .queue import QUEUE_NAME, enqueue_finalize, enqueue_subtask, make_queue
 
 
 def _worker_loop(redis_url: str, worker_id: int) -> None:
@@ -42,6 +42,8 @@ def main() -> None:
         jobs_dir=settings.jobs_dir,
         job_service=job_svc,
         enqueue_subtask=lambda jid, src: enqueue_subtask(queue, jid, src),
+        stale_tmp_seconds=settings.job_timeout_min * 60 + 60,
+        enqueue_finalize=lambda jid: enqueue_finalize(queue, jid),
     )
 
     if settings.rq_workers <= 1:

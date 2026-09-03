@@ -66,12 +66,28 @@ def run_subtask(job_id: str, source_file: str) -> None:
 
     job_dir = settings.jobs_dir / job_id
     out_path = job_dir / "out" / f"{source_file}.out.xlsx"
-    if out_path.exists():
-        bound.info("subtask.skip", reason="already_done")
-        job_svc.mark_done(job_id, source_file, duration_ms=0)
-        return
 
-    state = job_svc.get_state(job_id)
+    # This block runs before the main try/except below, so a transient OSError
+    # here (e.g. a bind-mount race returning PermissionError) would otherwise
+    # kill the subtask with no mark_failed and no user-facing message. Retry
+    # briefly; if it still fails, log and re-raise so RQ marks the job failed
+    # and the periodic scan re-enqueues it. We deliberately do NOT call
+    # mark_failed here: state.json is exactly what's unreadable, and the
+    # subtask can still succeed cleanly on the re-run.
+    for attempt in range(3):
+        try:
+            if out_path.exists():
+                bound.info("subtask.skip", reason="already_done")
+                job_svc.mark_done(job_id, source_file, duration_ms=0)
+                return
+            state = job_svc.get_state(job_id)
+            break
+        except OSError:
+            if attempt == 2:
+                bound.error("subtask.state_read_failed", attempt=attempt, exc_info=True)
+                raise
+            time.sleep(0.2)
+
     if state.config_name is None:
         job_svc.mark_failed(job_id, source_file, "Job 沒有對應的 config_name", tech_detail="state.config_name is None")
         raise RuntimeError("missing config_name")
@@ -196,13 +212,21 @@ def finalize_job(job_id: str) -> None:
     out_dir = job_dir / "out"
     zip_path = job_dir / "result.zip"
 
+    if zip_path.exists():
+        bound.info("finalize.skip", reason="already_packed")
+        return
+
     if state.failed == state.total:
         bound.warning("finalize.all_failed", failed=state.failed)
         return
 
     summary = _build_summary(state, config_svc)
-    zipper.pack(out_dir, zip_path, summary=summary)
-    bound.info("finalize.packed", zip=str(zip_path))
+    with job_svc.finalize_lock(job_id):
+        if zip_path.exists():
+            bound.info("finalize.skip", reason="already_packed")
+            return
+        zipper.pack(out_dir, zip_path, summary=summary)
+        bound.info("finalize.packed", zip=str(zip_path))
 
 
 def _build_summary(state: JobState, config_svc: ConfigService) -> str:

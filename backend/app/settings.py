@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     download_grace_minutes: int = Field(default=60, alias="DOWNLOAD_GRACE_MINUTES")
     job_retention_hours: int = Field(default=24, alias="JOB_RETENTION_HOURS")
 
+    # Backstop for stale-STARTED reclaim (queue.py's STALE_STARTED_SECONDS):
+    # a periodic re-scan catches jobs whose worker died after the one-shot
+    # startup scan already ran.
+    resume_scan_seconds: int = Field(default=120, alias="RESUME_SCAN_SECONDS")
+
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
     @property

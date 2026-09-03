@@ -776,3 +776,23 @@ if (json === EMPTY_PERSISTABLE_JSON) return;  // 不寫也不刪
 ## 第三部分小結
 
 6 條再次呈現「設計判斷＋迭代踩坑」的交錯：#1–3 是審議桌上避開的錯（wizard、optional-DB、preview 狀態化——都在寫程式前被殺掉，成本是幾段討論）；#4–6 是只有真實使用才會暴露的錯（高度模型、歷史資料的 null、錯誤訊息的受眾），單條修正都在一天內完成。與 Part 1/2 的回望結論一致，且多驗證了一件事：**審議能攔下「結構性的錯」，攔不下「體感性的錯」**——前者靠多角色對抗（wizard 兩位專家同時反對），後者只能靠縮短「上線→回饋→修正」的迴圈（本階段四輪修正平均當天完成）。
+
+## 第四部分：Crash Safety 強化——1 條（2026-09-02）
+
+外部 review 建議恢復流程改用 checksum 驗證 output 完整性，順勢盤點了整條寫入路徑後改走另一條更根本的路線。
+
+---
+
+## 1. 原子寫入取代 checksum：crash 後「存在即完整」
+
+**最初想法**：外部 review 建議恢復時驗證 output checksum；state.json 用 `write_text()` 覆寫、xlsx/zip 直寫最終路徑、finalize 無 guard、API 與 worker 都會 `scan_and_resume` 且 RQ 無固定 id。
+
+**為什麼錯**：checksum 只能偵測損壞，不能避免；而且要多一個 sidecar 檔與比對流程。真正問題是「半份檔案出現在最終路徑」。
+
+**現在做法**：全部寫入改 temp + fsync + `os.replace`（`core/atomic_io.py`），存在即完整；transition table + 重入 no-op；finalize exists guard + flock；RQ deterministic id（`{job}__sub__{sha1(檔名)[:16]}`，因 RQ 2.8 的 id 只允許 `[A-Za-z0-9_-]` 且直接替換字元會讓中文檔名互撞）；queued 或 90 秒內有 heartbeat 的 started 才視為重複，過期的 started 回收重排；API 每 `RESUME_SCAN_SECONDS`（預設 120 秒）補掃一次。
+
+**學到什麼**：先問「不變量是什麼」（最終路徑只能有完整檔）再選機制；驗證用 kill -9 演練而非只看 exists。第一版 sanitizer 與「started 即進行中」兩個假設都是 kill -9 演練抓出來的，單元測試沒抓到。
+
+補記：8.20 e2e 走查發現一個尚未裁決的產品缺口——JobDetail 的下載按鈕只在 `status === "done"` 時顯示，partial-failure（status 為 failed 但 ZIP 已存在）時看不到下載鈕；待裁決，本次未修。
+
+---

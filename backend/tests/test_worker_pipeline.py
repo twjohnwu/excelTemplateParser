@@ -6,6 +6,9 @@ after `monkeypatch`-ing `_wire()` to return our fakeredis + tmp paths.
 
 from __future__ import annotations
 
+import contextlib
+import threading
+import time
 import zipfile
 
 import pytest
@@ -165,6 +168,58 @@ def test_run_subtask_records_failure(
     assert sub.user_message  # populated
 
 
+def test_run_subtask_retries_transient_state_read_failure(
+    monkeypatch, wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx,
+):
+    """A bind-mount race can raise PermissionError from get_state before the
+    main try/except. Two transient failures then a success should still let
+    the subtask complete normally."""
+    _setup_job(wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx)
+
+    real_get_state = JobService.get_state
+    calls = {"n": 0}
+
+    def flaky_get_state(self, job_id):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise PermissionError("[Errno 1] Operation not permitted: state.json")
+        return real_get_state(self, job_id)
+
+    monkeypatch.setattr(JobService, "get_state", flaky_get_state)
+
+    worker_tasks.run_subtask("job1", "orders.xlsx")
+
+    out = wired["settings"].jobs_dir / "job1" / "out" / "orders.xlsx.out.xlsx"
+    assert out.exists()
+    assert calls["n"] == 3
+
+
+def test_run_subtask_reraises_persistent_state_read_failure_without_mark_failed(
+    monkeypatch, wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx,
+):
+    """If state.json stays unreadable, run_subtask must re-raise (so RQ marks
+    the job failed and the periodic scan re-enqueues it) WITHOUT calling
+    mark_failed — state is exactly what's unreadable, and the subtask can
+    still succeed on a later re-run."""
+    _setup_job(wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx)
+
+    def always_fails(self, job_id):
+        raise PermissionError("[Errno 1] Operation not permitted: state.json")
+
+    monkeypatch.setattr(JobService, "get_state", always_fails)
+
+    mark_failed_calls = []
+    monkeypatch.setattr(
+        JobService, "mark_failed",
+        lambda self, *args, **kwargs: mark_failed_calls.append((args, kwargs)),
+    )
+
+    with pytest.raises(PermissionError):
+        worker_tasks.run_subtask("job1", "orders.xlsx")
+
+    assert mark_failed_calls == []
+
+
 def test_finalize_packs_zip(
     wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx,
 ):
@@ -221,6 +276,112 @@ def test_execute_streaming_equivalent_across_chunk_sizes(
     assert rows[1][1] in (None, "")
     assert rows[2] == ("A003", "客戶一", "張三", 2500)
     assert len(rows) == 3
+
+
+def test_finalize_job_called_twice_packs_once(
+    monkeypatch, wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx,
+):
+    _setup_job(wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx)
+    worker_tasks.run_subtask("job1", "orders.xlsx")
+
+    calls = []
+    real_pack = worker_tasks.zipper.pack
+
+    def spy_pack(*args, **kwargs):
+        calls.append((args, kwargs))
+        return real_pack(*args, **kwargs)
+
+    monkeypatch.setattr(worker_tasks.zipper, "pack", spy_pack)
+
+    worker_tasks.finalize_job("job1")
+    worker_tasks.finalize_job("job1")
+
+    assert len(calls) == 1
+    zip_path = wired["settings"].jobs_dir / "job1" / "result.zip"
+    assert zip_path.exists()
+
+
+def test_finalize_job_skips_pack_when_zip_already_exists(
+    monkeypatch, wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx,
+):
+    _setup_job(wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx)
+    worker_tasks.run_subtask("job1", "orders.xlsx")
+
+    zip_path = wired["settings"].jobs_dir / "job1" / "result.zip"
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    zip_path.write_bytes(b"pre-existing zip")
+
+    calls = []
+    monkeypatch.setattr(
+        worker_tasks.zipper, "pack",
+        lambda *a, **k: calls.append((a, k)),
+    )
+
+    worker_tasks.finalize_job("job1")
+
+    assert calls == []
+    assert zip_path.read_bytes() == b"pre-existing zip"
+
+
+def test_finalize_job_concurrent_calls_pack_exactly_once(
+    monkeypatch, wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx,
+):
+    """Two finalize_job calls racing (RQ can schedule the job-creation safety
+    net and the last-subtask enqueue close together) must pack the zip only
+    once — guarded by JobService.finalize_lock."""
+    _setup_job(wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx)
+    worker_tasks.run_subtask("job1", "orders.xlsx")
+
+    real_pack = worker_tasks.zipper.pack
+    calls = []
+
+    def slow_pack(*args, **kwargs):
+        calls.append((args, kwargs))
+        time.sleep(0.3)
+        return real_pack(*args, **kwargs)
+
+    monkeypatch.setattr(worker_tasks.zipper, "pack", slow_pack)
+
+    threads = [threading.Thread(target=worker_tasks.finalize_job, args=("job1",)) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(calls) == 1
+    zip_path = wired["settings"].jobs_dir / "job1" / "result.zip"
+    assert zip_path.exists()
+
+
+def test_finalize_job_concurrent_calls_pack_twice_without_lock(
+    monkeypatch, wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx,
+):
+    """Sanity check for the test above: with `finalize_lock` stubbed to a
+    no-op, the race is real and both threads pack — proving the assertion
+    in the previous test would fail without the lock."""
+    _setup_job(wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx)
+    worker_tasks.run_subtask("job1", "orders.xlsx")
+
+    real_pack = worker_tasks.zipper.pack
+    calls = []
+
+    def slow_pack(*args, **kwargs):
+        calls.append((args, kwargs))
+        time.sleep(0.3)
+        return real_pack(*args, **kwargs)
+
+    monkeypatch.setattr(worker_tasks.zipper, "pack", slow_pack)
+    monkeypatch.setattr(
+        wired["job_svc"], "finalize_lock", lambda job_id: contextlib.nullcontext()
+    )
+
+    threads = [threading.Thread(target=worker_tasks.finalize_job, args=("job1",)) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(calls) == 2
 
 
 def test_finalize_skips_cancelled(wired):

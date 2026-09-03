@@ -41,3 +41,8 @@ class WriterError(CoreError):
 
 class TemplateInvalid(CoreError):
     """Uploaded xlsx is corrupt, not an xlsx, or missing required structure."""
+
+
+class IllegalTransition(CoreError):
+    """A job/subtask state transition was attempted from a state that does
+    not allow it (e.g. done -> running)."""

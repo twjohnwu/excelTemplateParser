@@ -17,8 +17,11 @@ from pathlib import Path
 from statistics import mean
 from typing import Iterator
 
+import structlog
 from redis import Redis
 
+from ..core.atomic_io import atomic_write_text
+from ..core.exceptions import IllegalTransition
 from ..schemas import (
     ConfigSchema,
     JobSnapshot,
@@ -32,6 +35,47 @@ JOB_DONE_SET = "job:{id}:done"
 JOB_EVENTS_CHANNEL = "job:{id}:events"
 JOB_CANCEL_FLAG = "job:{id}:cancel"
 ETA_MIN_SAMPLES = 5
+
+# State machines for subtask/job status. Values are the set of statuses a
+# transition may legally land on; a status absent from the table (or mapped
+# to an empty set) is terminal.
+SUBTASK_TRANSITIONS: dict[str, set[str]] = {
+    "pending": {"running", "done", "failed"},
+    "running": {"done", "failed"},
+    "done": set(),
+    "failed": set(),
+}
+
+JOB_TRANSITIONS: dict[str, set[str]] = {
+    "pending": {"running", "done", "failed", "cancelled"},
+    "running": {"done", "failed", "cancelled"},
+    "done": set(),
+    "failed": set(),
+    "cancelled": set(),
+}
+
+log = structlog.get_logger(__name__)
+
+
+def _transition(current: str, target: str, table: dict[str, set[str]]) -> bool:
+    """Validate a state machine transition.
+
+    Returns True if `current -> target` is legal and should be applied,
+    False if it's a same-state re-entry (caller should skip the write —
+    e.g. a duplicate mark_running for an already-running subtask). Raises
+    IllegalTransition for anything else (e.g. done -> running).
+    """
+    if current == target:
+        return False
+    allowed = table.get(current, set())
+    if target not in allowed:
+        raise IllegalTransition(
+            f"非法狀態轉換：{current} → {target}",
+            tech_detail=f"allowed from {current!r}: {sorted(allowed)}",
+            current=current,
+            target=target,
+        )
+    return True
 
 
 class JobNotFound(Exception):
@@ -70,8 +114,12 @@ class JobService:
         with self._locked_state(job_id) as state:
             if source_file not in state.subtasks:
                 return
-            state.subtasks[source_file].status = "running"
-            state.status = "running"
+            sub = state.subtasks[source_file]
+            # Same-state (already running) or illegal (already done/failed) —
+            # both are a retried/duplicate message, crash-safe re-entry no-op.
+            if not self._apply_transition(job_id, sub, "running", SUBTASK_TRANSITIONS, source_file=source_file):
+                return
+            self._apply_transition(job_id, state, "running", JOB_TRANSITIONS)
             self._persist_locked(state)
         self._publish(job_id, {"type": "subtask.running", "source": source_file})
 
@@ -85,10 +133,14 @@ class JobService:
             if source_file not in state.subtasks:
                 return False
             sub = state.subtasks[source_file]
-            sub.status = "done"
+            # Already terminal (same-state, or illegal e.g. failed -> done) —
+            # a retried/duplicate mark_done must not re-trigger finalize.
+            if not self._apply_transition(job_id, sub, "done", SUBTASK_TRANSITIONS, source_file=source_file):
+                return False
             sub.duration_ms = duration_ms
             if state.done + state.failed == state.total:
-                state.status = "failed" if state.failed > 0 else "done"
+                target = "failed" if state.failed > 0 else "done"
+                self._apply_transition(job_id, state, target, JOB_TRANSITIONS)
                 last = True
             self._persist_locked(state)
         self.redis.sadd(JOB_DONE_SET.format(id=job_id), source_file)
@@ -111,11 +163,14 @@ class JobService:
             if source_file not in state.subtasks:
                 return False
             sub = state.subtasks[source_file]
-            sub.status = "failed"
+            # Already terminal (same-state, or illegal e.g. done -> failed) —
+            # a retried/duplicate mark_failed must not re-trigger finalize.
+            if not self._apply_transition(job_id, sub, "failed", SUBTASK_TRANSITIONS, source_file=source_file):
+                return False
             sub.user_message = user_message
             sub.tech_detail = tech_detail
             if state.done + state.failed == state.total:
-                state.status = "failed"
+                self._apply_transition(job_id, state, "failed", JOB_TRANSITIONS)
                 last = True
             self._persist_locked(state)
         self._publish(job_id, {
@@ -127,8 +182,8 @@ class JobService:
 
     def mark_cancelled(self, job_id: str) -> None:
         with self._locked_state(job_id) as state:
+            self._apply_transition(job_id, state, "cancelled", JOB_TRANSITIONS)
             state.cancel_requested = True
-            state.status = "cancelled"
             self._persist_locked(state)
         self.redis.set(JOB_CANCEL_FLAG.format(id=job_id), "1")
         self._publish(job_id, {"type": "cancelled"})
@@ -184,6 +239,44 @@ class JobService:
 
     # ---- internals ----
 
+    def _apply_transition(
+        self,
+        job_id: str,
+        obj: JobState | SubtaskState,
+        target: str,
+        table: dict[str, set[str]],
+        *,
+        source_file: str | None = None,
+    ) -> bool:
+        """Apply `obj.status -> target` if legal; log and ignore otherwise.
+
+        Shared by both job-level transitions (`obj` is the `JobState`,
+        `table=JOB_TRANSITIONS`) and subtask-level ones (`obj` is a
+        `SubtaskState`, `table=SUBTASK_TRANSITIONS`, `source_file` set for
+        the log line). Returns True iff the assignment happened; a
+        same-state call returns False silently (a legitimate no-op — retried
+        messages hit this constantly). An illegal transition (e.g. two
+        subtasks finishing back-to-back both computing "last" and both
+        trying to move the job to its terminal status, or a duplicate
+        mark_running for an already-terminal subtask) is a benign race —
+        logged instead of silently swallowed so a genuinely unexpected
+        transition is still visible — and also returns False.
+        """
+        try:
+            if _transition(obj.status, target, table):
+                obj.status = target
+                return True
+            return False
+        except IllegalTransition:
+            log.warning(
+                "illegal_transition_ignored",
+                job_id=job_id,
+                source_file=source_file,
+                current=obj.status,
+                target=target,
+            )
+            return False
+
     def _job_dir(self, job_id: str) -> Path:
         return self.dir / job_id
 
@@ -199,7 +292,7 @@ class JobService:
     def _write_state(self, state: JobState) -> None:
         path = self._state_path(state.job_id)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(state.model_dump_json(indent=2), encoding="utf-8")
+        atomic_write_text(path, state.model_dump_json(indent=2))
 
     def _persist(self, state: JobState) -> None:
         """File first, redis second — order matters for crash safety."""
@@ -226,6 +319,23 @@ class JobService:
             try:
                 state = self._read_state(job_id)
                 yield state
+            finally:
+                fcntl.flock(lock_fh, fcntl.LOCK_UN)
+
+    @contextlib.contextmanager
+    def finalize_lock(self, job_id: str) -> Iterator[None]:
+        """Exclusive flock guarding the pack step in `finalize_job`.
+
+        Prevents two concurrently-scheduled finalize_job runs (RQ can
+        schedule both the job-creation safety net and the last-subtask
+        enqueue close together) from packing result.zip twice.
+        """
+        lock_path = self._job_dir(job_id) / "finalize.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(lock_path, "w") as lock_fh:
+            fcntl.flock(lock_fh, fcntl.LOCK_EX)
+            try:
+                yield
             finally:
                 fcntl.flock(lock_fh, fcntl.LOCK_UN)
 

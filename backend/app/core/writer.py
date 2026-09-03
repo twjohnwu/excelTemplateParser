@@ -25,6 +25,7 @@ from zipfile import BadZipFile
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
 
+from .atomic_io import atomic_path
 from .exceptions import WriterError
 
 
@@ -121,7 +122,8 @@ def _write_styled(
                 row_offset += 1
 
         dst.parent.mkdir(parents=True, exist_ok=True)
-        wb.save(str(dst))
+        with atomic_path(dst) as tmp:
+            wb.save(str(tmp))
     finally:
         wb.close()
 
@@ -171,7 +173,8 @@ def _write_fast(
             ws.append(out_row)
 
     dst.parent.mkdir(parents=True, exist_ok=True)
-    wb.save(str(dst))
+    with atomic_path(dst) as tmp:
+        wb.save(str(tmp))
 
 
 def _read_template_head(

@@ -20,7 +20,7 @@ from .services.job_service import JobService
 from .services.recovery_service import scan_and_resume
 from .services.scheduler import build_scheduler
 from .settings import get_settings
-from .workers.queue import enqueue_subtask, make_queue
+from .workers.queue import enqueue_finalize, enqueue_subtask, make_queue
 
 log = structlog.get_logger(__name__)
 
@@ -39,13 +39,18 @@ async def lifespan(app: FastAPI):
     )
     queue = make_queue(redis, settings)
 
-    # 1) recovery — re-enqueue unfinished subtasks
-    try:
+    def _resume() -> None:
         scan_and_resume(
             jobs_dir=settings.jobs_dir,
             job_service=job_svc,
             enqueue_subtask=lambda jid, src: enqueue_subtask(queue, jid, src),
+            stale_tmp_seconds=settings.job_timeout_min * 60 + 60,
+            enqueue_finalize=lambda jid: enqueue_finalize(queue, jid),
         )
+
+    # 1) recovery — re-enqueue unfinished subtasks
+    try:
+        _resume()
     except Exception:
         log.exception("lifespan.recovery_failed")
 
@@ -56,8 +61,14 @@ async def lifespan(app: FastAPI):
     except Exception:
         log.exception("lifespan.startup_cleanup_failed")
 
-    # 3) recurring scheduler
-    scheduler = build_scheduler(cleanup)
+    # 3) recurring scheduler — includes the periodic resume backstop so a
+    # subtask whose worker died after the startup scan is reclaimed within
+    # settings.resume_scan_seconds instead of staying stuck forever.
+    scheduler = build_scheduler(
+        cleanup,
+        resume=_resume,
+        resume_scan_seconds=settings.resume_scan_seconds,
+    )
     scheduler.start()
 
     try:
