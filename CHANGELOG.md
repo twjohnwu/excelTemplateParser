@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-04
+
+Crash-safety and operability release. Every persistent write is now atomic, recovery reconciles
+state with what is on disk, cancellation is cooperative, and the test/CI surface was widened.
+
+### Added
+
+- GitHub Actions CI: `backend` (pytest), `frontend` (typecheck, vitest, build), `docker-smoke`
+  (compose with healthchecks, smoke + resume tests, Playwright e2e).
+- Six Playwright e2e specs replacing the formerly manual UI verification items
+  (§8.8, 8.15, 8.19, 8.20, 8.23, 8.24 of `scripts/VERIFICATION_REPORT.md`).
+- Job snapshot field `zip_ready`; a partial-failure job's ZIP is downloadable from the UI with a hint.
+- Periodic recovery scan (`RESUME_SCAN_SECONDS`, default 120) as a backstop after worker crashes.
+- Subtask status `cancelled` and job field `cancelled_at`.
+- `docs/setup.md` / `docs/setup.zh-TW.md` (install, development, environment, CI, e2e).
+
+### Changed
+
+- `state.json`, output xlsx and the result ZIP are written via temp file + fsync + `os.replace`;
+  "final path exists" now means "complete".
+- Job and subtask status changes go through explicit transition tables; repeated `mark_done` is a no-op.
+- RQ job ids are deterministic (`{job}__sub__{sha1(name)}`, `{job}__finalize`) with duplicate suppression
+  and reclaim of stale `started` jobs.
+- Cancel is a tombstone: state and job directory are kept, queued work is dropped, running workers stop
+  cooperatively, and cleanup removes the directory once nothing is running (or after `JOB_TIMEOUT_MIN + 1` min).
+- README trimmed; setup, development, environment variables and repository layout moved to `docs/setup*.md`.
+
+### Fixed
+
+- A worker killed mid-write could leave a truncated `state.json`, xlsx or ZIP.
+- Repeated `mark_done` on the same subtask could enqueue finalize twice; finalize had no lock or ZIP guard.
+- API and worker both running `scan_and_resume` could enqueue the same subtask twice.
+- After SIGKILL, RQ jobs left `started` blocked re-enqueue indefinitely.
+- Chinese source filenames collided into one RQ job id, silently dropping subtasks.
+- An output written before the crash but never marked done left the job stuck in `pending`.
+- Finalize did not publish an SSE event after packing, so the download button needed a reload.
+- Cancelling deleted the job directory immediately, so running workers hit `JobNotFound`.
+
 ## [0.1.0] - 2026-05-18
 
 Initial public release. Single-machine Docker deployment, no login required.

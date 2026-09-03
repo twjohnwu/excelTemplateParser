@@ -2,7 +2,7 @@
 
 **English** · [繁體中文](README.zh-TW.md)
 
-[![CI](https://github.com/twjohnwu/excelTemplateParser/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/twjohnwu/excelTemplateParser/actions/workflows/ci.yml) [![Version](https://img.shields.io/badge/version-0.1.0-blue)](CHANGELOG.md)
+[![CI](https://github.com/twjohnwu/excelTemplateParser/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/twjohnwu/excelTemplateParser/actions/workflows/ci.yml) [![Version](https://img.shields.io/badge/version-0.2.0-blue)](CHANGELOG.md)
 
 Batch-convert many Excel files of the same format into another format. Author the mapping once, reuse forever. Single-machine Docker deployment, no login required. UI supports zh-TW / English and light / dark mode, both persisted locally.
 
