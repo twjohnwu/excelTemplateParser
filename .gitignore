@@ -29,6 +29,10 @@ dist/
 frontend/vite.config.js
 frontend/vite.config.d.ts
 
+# Playwright e2e
+frontend/playwright-report/
+frontend/test-results/
+
 # Runtime data (redis AOF, configs, jobs)
 data/
 

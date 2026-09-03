@@ -10,25 +10,25 @@ End-to-end verification of `excelTemplateParser`. Run after
 | 8.3 | Flow A: save config | smoke_test.py | ✓ POST/GET/list all 200 |
 | 8.4 | Flow B: batch 3 primary + 2 lookup | smoke_test.py | ✓ status=done, ZIP contains 3 outputs + `_summary.txt` |
 | 8.5 | Style sanity in output xlsx | smoke_test.py | ✓ header preserved, conditional column behavior correct |
-| 8.6 | 30MB source, worker RSS < 500MB | **manual** | not exercised here (covered by openpyxl read_only) |
+| 8.6 | 30MB source, worker RSS < 500MB | **manual (perf check — memory RSS, not a UI flow)** | not exercised here (covered by openpyxl read_only) |
 | 8.7 | Error paths: bad xlsx / dup name / missing column | smoke_test.py | ✓ 409 / 422 with request_id header |
-| 8.8 | Frontend i18n + dark mode persistence | **manual** | requires browser session |
+| 8.8 | Frontend i18n + dark mode persistence | `e2e/i18n-theme.spec.ts` | ✓ language + theme toggle both persist across reload |
 | 8.9 | Resume: restart worker mid-batch | resume_test.py | ✓ 10/10 completed after `docker compose restart worker` at 4/10 |
 | 8.10 | Persistence: down/up, config survives | inline | ✓ config re-fetchable after stop/start |
 | 8.11 | Disaster: wipe Redis volume, keep `/data/` | inline | ✓ config + job snapshot rehydrate from disk |
 | 8.12 | Batch snapshot endpoint | smoke_test.py | ✓ returns both real and `missing` entries |
 | 8.13 | Errors carry request_id | smoke_test.py | ✓ `x-request-id` header on 422 |
 | 8.14 | Multi-source semantics | smoke_test.py | ✓ 0 primary → 422; 3 primary → 3 outputs |
-| 8.15 | Sheet/header row picker | **manual** | requires SheetHeaderPicker UI (covered by `/api/templates/parse` shape) |
+| 8.15 | Sheet/header row picker | `e2e/sheet-header-picker.spec.ts` | ✓ multi-sheet upload, sheet switch, row-click sets header_row |
 | 8.16 | Preflight rejects missing column | smoke_test.py | ✓ 422 with column name in detail |
 | 8.17 | Duplicate primary filename rejected | smoke_test.py | ✓ 422 |
 | 8.18 | Cancel mid-flight job | smoke_test.py | ✓ cancel→200, job purged (404 on snapshot) |
-| 8.19 | ETA after ≥5 subtasks done | **manual** | logic verified in unit test `test_eta_computed_after_threshold` |
-| 8.20 | Partial failure ZIP packaging | **manual** | covered by unit test `test_finalize_packs_zip` + worker boundary |
+| 8.19 | ETA after ≥5 subtasks done | `e2e/eta.spec.ts` | ✓ eta_seconds observed non-null via SSE while running, ≥5/12 done |
+| 8.20 | Partial failure ZIP packaging | `e2e/partial-failure.spec.ts` | ✓ 4 done + 1 failed → ZIP with 4 outputs; corrupt file rejects whole batch |
 | 8.21 | Download grace period (re-download within window) | smoke_test.py | ✓ second GET /zip within grace returns 200 |
 | 8.22 | HTTP Range partial content | smoke_test.py | ✓ `Range: bytes=10-100` returns 206 |
-| 8.23 | Edit existing config (load + download) | **manual** | UI flow; `?config=<name>` route + `useConfig` hook in place |
-| 8.24 | Draft autosave | **manual** | localStorage interaction; debounced writer in ConfigBuilder |
+| 8.23 | Edit existing config (load + download) | `e2e/edit-config.spec.ts` | ✓ `?config=<name>` loads form; edited name reflected in downloaded JSON |
+| 8.24 | Draft autosave | `e2e/draft-autosave.spec.ts` | ✓ autosave → reload → restore/discard round-trip |
 
 ## Bugs caught by §8 (and fixed)
 
