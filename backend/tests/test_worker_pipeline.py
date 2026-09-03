@@ -7,11 +7,13 @@ after `monkeypatch`-ing `_wire()` to return our fakeredis + tmp paths.
 from __future__ import annotations
 
 import contextlib
+import shutil
 import threading
 import time
 import zipfile
 
 import pytest
+import structlog.testing
 from openpyxl import load_workbook
 
 from app.schemas import ConfigSchema
@@ -148,6 +150,100 @@ def test_run_subtask_respects_cancel_flag(
     worker_tasks.run_subtask("job1", "orders.xlsx")
     out = wired["settings"].jobs_dir / "job1" / "out" / "orders.xlsx.out.xlsx"
     assert not out.exists()  # cancelled before work
+
+
+def test_run_subtask_cancelled_before_writer_leaves_no_output(
+    monkeypatch, wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx,
+):
+    """The job is cancelled AFTER the initial top-of-function check passes
+    (so parse/join/map run) but BEFORE the writer stage. run_subtask must
+    not write the output file or call mark_done."""
+    _setup_job(wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx)
+
+    calls = {"n": 0}
+    real_is_cancel_requested = JobService.is_cancel_requested
+
+    def flaky_is_cancel_requested(self, job_id):
+        calls["n"] += 1
+        # 1st call: top-of-function check. 2nd call: pre-writer check.
+        return calls["n"] >= 2
+
+    monkeypatch.setattr(JobService, "is_cancel_requested", flaky_is_cancel_requested)
+
+    mark_done_calls = []
+    monkeypatch.setattr(
+        JobService, "mark_done",
+        lambda self, *a, **k: mark_done_calls.append((a, k)),
+    )
+
+    with structlog.testing.capture_logs() as logs:
+        worker_tasks.run_subtask("job1", "orders.xlsx")
+
+    out = wired["settings"].jobs_dir / "job1" / "out" / "orders.xlsx.out.xlsx"
+    assert not out.exists()
+    assert mark_done_calls == []
+    assert any(entry.get("event") == "subtask.cancelled_midway" for entry in logs)
+    # The subtask must flip to `cancelled`, not sit stuck at `running` —
+    # otherwise CleanupService.purge_cancelled_jobs never takes its fast path.
+    assert wired["job_svc"].get_state("job1").subtasks["orders.xlsx"].status == "cancelled"
+
+    monkeypatch.setattr(JobService, "is_cancel_requested", real_is_cancel_requested)
+
+
+def test_run_subtask_cancelled_before_mark_done_marks_subtask_cancelled(
+    monkeypatch, wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx,
+):
+    """Cancelled after the writer already produced out_path (stage=
+    pre_mark_done): the output file is left in place for CleanupService to
+    sweep with the rest of the job dir, but the subtask must flip to
+    `cancelled` rather than staying `running` forever."""
+    _setup_job(wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx)
+
+    calls = {"n": 0}
+    real_is_cancel_requested = JobService.is_cancel_requested
+
+    def flaky_is_cancel_requested(self, job_id):
+        calls["n"] += 1
+        # 1st: top-of-function. 2nd: pre-writer. 3rd: pre_mark_done — cancel here.
+        return calls["n"] >= 3
+
+    monkeypatch.setattr(JobService, "is_cancel_requested", flaky_is_cancel_requested)
+
+    with structlog.testing.capture_logs() as logs:
+        worker_tasks.run_subtask("job1", "orders.xlsx")
+
+    out = wired["settings"].jobs_dir / "job1" / "out" / "orders.xlsx.out.xlsx"
+    assert out.exists()  # writer already ran; left for cleanup to sweep
+    assert wired["job_svc"].get_state("job1").subtasks["orders.xlsx"].status == "cancelled"
+    assert any(
+        entry.get("event") == "subtask.cancelled_midway" and entry.get("stage") == "pre_mark_done"
+        for entry in logs
+    )
+
+    monkeypatch.setattr(JobService, "is_cancel_requested", real_is_cancel_requested)
+
+
+def test_run_subtask_job_dir_removed_before_mark_done_logs_and_returns(
+    monkeypatch, wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx,
+):
+    """A cancelled job can be swept by CleanupService while its running
+    subtask is still writing. mark_done then hits JobNotFound — run_subtask
+    must swallow it (log + return), not propagate an exception."""
+    _setup_job(wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx)
+    job_dir = wired["settings"].jobs_dir / "job1"
+
+    real_execute = worker_tasks._execute
+
+    def execute_then_sweep(*args, **kwargs):
+        real_execute(*args, **kwargs)
+        shutil.rmtree(job_dir)  # simulate CleanupService sweeping mid-flight
+
+    monkeypatch.setattr(worker_tasks, "_execute", execute_then_sweep)
+
+    with structlog.testing.capture_logs() as logs:
+        worker_tasks.run_subtask("job1", "orders.xlsx")  # must not raise
+
+    assert any(entry.get("event") == "subtask.job_gone" for entry in logs)
 
 
 def test_run_subtask_records_failure(
@@ -408,6 +504,31 @@ def test_finalize_publishes_finalized_event_once(
     worker_tasks.finalize_job("job1")  # zip already exists -> early return
     finalized_events = [p for p in published if p.get("type") == "finalized"]
     assert finalized_events == []
+
+
+def test_run_subtask_idempotent_skip_enqueues_finalize_when_last(
+    monkeypatch, wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx,
+):
+    """A worker retrying the last remaining subtask hits the output-exists
+    skip branch (:79-84) — it must still enqueue finalize when mark_done
+    reports this was the last pending subtask, mirroring the normal
+    completion path at :123-131."""
+    _setup_job(wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx)
+    out = wired["settings"].jobs_dir / "job1" / "out" / "orders.xlsx.out.xlsx"
+    out.write_bytes(b"placeholder")  # pretend already done
+
+    calls = []
+    monkeypatch.setattr(
+        "app.workers.queue.enqueue_finalize",
+        lambda queue, job_id: calls.append(job_id),
+    )
+
+    worker_tasks.run_subtask("job1", "orders.xlsx")
+
+    assert calls == ["job1"]
+    sub = wired["job_svc"].get_state("job1").subtasks["orders.xlsx"]
+    assert sub.status == "done"
+    assert sub.duration_ms is None
 
 
 def test_finalize_skips_cancelled(wired):

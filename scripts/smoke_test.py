@@ -277,9 +277,13 @@ def main() -> int:
         cancel_id = r.json()["job_id"]
         cancel_r = client.post(f"{API}/api/jobs/{cancel_id}/cancel")
         check(f"cancel returns 200 (got {cancel_r.status_code})", cancel_r.status_code == 200)
-        # After cancel the job is deleted from disk; subsequent GET should 404.
+        # After cancel the job dir is kept as a tombstone (cleanup purges it later).
         r = client.get(f"{API}/api/jobs/{cancel_id}")
-        check("cancelled job is purged (404 on snapshot)", r.status_code == 404)
+        check("cancelled job is a tombstone (200, status=cancelled, cancelled_at set)",
+              r.status_code == 200 and r.json().get("status") == "cancelled")
+        r = client.get(f"{API}/api/jobs/{cancel_id}/state")
+        check("cancelled job state has cancelled_at",
+              bool(r.json().get("cancelled_at")))
 
         # --- §8.12 progress visibility / batch snapshot ---
         section("§8.12 batch snapshot endpoint")

@@ -15,7 +15,7 @@ Operator = Literal[">=", "<=", "==", "!=", "contains", "regex", "in"]
 SourceRole = Literal["primary", "lookup"]
 JoinType = Literal["left", "inner", "outer", "right"]
 JobStatus = Literal["pending", "running", "done", "failed", "cancelled"]
-SubtaskStatus = Literal["pending", "running", "done", "failed"]
+SubtaskStatus = Literal["pending", "running", "done", "failed", "cancelled"]
 
 
 class TargetTemplate(BaseModel):
@@ -181,6 +181,7 @@ class JobState(BaseModel):
     download_started_at: str | None = None
     subtasks: dict[str, SubtaskState] = Field(default_factory=dict)
     cancel_requested: bool = False
+    cancelled_at: str | None = None
 
     @property
     def total(self) -> int:

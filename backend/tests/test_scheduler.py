@@ -17,7 +17,7 @@ def _cleanup(redis_client, tmp_path) -> CleanupService:
 def test_build_scheduler_registers_cleanup_jobs(redis_client, tmp_path):
     scheduler = build_scheduler(_cleanup(redis_client, tmp_path))
     ids = {job.id for job in scheduler.get_jobs()}
-    assert {"purge_grace_expired", "purge_old_jobs"} <= ids
+    assert {"purge_grace_expired", "purge_cancelled_jobs", "purge_old_jobs"} <= ids
     assert "resume_scan" not in ids
 
 

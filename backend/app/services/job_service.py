@@ -40,10 +40,11 @@ ETA_MIN_SAMPLES = 5
 # transition may legally land on; a status absent from the table (or mapped
 # to an empty set) is terminal.
 SUBTASK_TRANSITIONS: dict[str, set[str]] = {
-    "pending": {"running", "done", "failed"},
-    "running": {"done", "failed"},
+    "pending": {"running", "done", "failed", "cancelled"},
+    "running": {"done", "failed", "cancelled"},
     "done": set(),
     "failed": set(),
+    "cancelled": set(),
 }
 
 JOB_TRANSITIONS: dict[str, set[str]] = {
@@ -123,7 +124,7 @@ class JobService:
             self._persist_locked(state)
         self._publish(job_id, {"type": "subtask.running", "source": source_file})
 
-    def mark_done(self, job_id: str, source_file: str, duration_ms: int) -> bool:
+    def mark_done(self, job_id: str, source_file: str, duration_ms: int | None) -> bool:
         """Returns True if this call completed the LAST pending subtask.
 
         Callers use that flag to enqueue finalize_job exactly once.
@@ -180,10 +181,28 @@ class JobService:
         })
         return last
 
+    def mark_subtask_cancelled(self, job_id: str, source_file: str) -> None:
+        """Cooperative-cancel exit inside `run_subtask`: flips a still-
+        `running` (or `pending`) subtask to `cancelled` so it stops looking
+        active. Without this the subtask stays `running` forever and
+        `CleanupService.purge_cancelled_jobs`'s fast path (no subtask
+        running) never fires, forcing every cancel through the timeout
+        fallback. No job-status change — `mark_cancelled` already moved the
+        job to `cancelled` when the cancel was requested."""
+        with self._locked_state(job_id) as state:
+            if source_file not in state.subtasks:
+                return
+            sub = state.subtasks[source_file]
+            if not self._apply_transition(job_id, sub, "cancelled", SUBTASK_TRANSITIONS, source_file=source_file):
+                return
+            self._persist_locked(state)
+        self._publish(job_id, {"type": "subtask.cancelled", "source": source_file})
+
     def mark_cancelled(self, job_id: str) -> None:
         with self._locked_state(job_id) as state:
             self._apply_transition(job_id, state, "cancelled", JOB_TRANSITIONS)
             state.cancel_requested = True
+            state.cancelled_at = datetime.now(UTC).isoformat()
             self._persist_locked(state)
         self.redis.set(JOB_CANCEL_FLAG.format(id=job_id), "1")
         self._publish(job_id, {"type": "cancelled"})
@@ -313,6 +332,11 @@ class JobService:
         race on the file rewrite (last writer wins, losing increments).
         """
         path = self._state_path(job_id)
+        # Check BEFORE creating anything: a job dir already purged (cancelled
+        # + swept mid-flight) must raise JobNotFound without leaving an
+        # orphan dir/lock file behind for a late-arriving caller.
+        if not path.exists():
+            raise JobNotFound(job_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         # Touch a sibling lock file (avoids interfering with reads of state.json).
         lock_path = path.with_suffix(".lock")
@@ -332,6 +356,9 @@ class JobService:
         schedule both the job-creation safety net and the last-subtask
         enqueue close together) from packing result.zip twice.
         """
+        # Same ordering as `_locked_state`: check before creating anything.
+        if not self._state_path(job_id).exists():
+            raise JobNotFound(job_id)
         lock_path = self._job_dir(job_id) / "finalize.lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         with open(lock_path, "w") as lock_fh:

@@ -47,17 +47,40 @@ def api_client(tmp_path, redis_client, monkeypatch):
 
     app = create_app()
 
+    class _FakeRQJob:
+        def __init__(self, kwargs: dict, queue: "_RecordingQueue"):
+            self.kwargs = kwargs
+            self._queue = queue
+            self.cancelled = False
+            self.deleted = False
+
+        def cancel(self):
+            self.cancelled = True
+
+        def delete(self):
+            self.deleted = True
+            if self in self._queue._jobs:
+                self._queue._jobs.remove(self)
+
     class _RecordingQueue:
         def __init__(self):
             self.enqueued: list[tuple[str, dict]] = []
             self._default_timeout = 600
+            self._jobs: list["_FakeRQJob"] = []
 
         def enqueue(self, func_path, kwargs=None, **_):  # type: ignore[no-untyped-def]
             self.enqueued.append((func_path, kwargs or {}))
             return None
 
+        def push_queued(self, kwargs: dict) -> "_FakeRQJob":
+            """Test helper: simulate a not-yet-started RQ job sitting on the
+            queue, for cancel-endpoint tests that assert it gets dropped."""
+            job = _FakeRQJob(kwargs, self)
+            self._jobs.append(job)
+            return job
+
         def get_jobs(self):
-            return []
+            return list(self._jobs)
 
     queue = _RecordingQueue()
 

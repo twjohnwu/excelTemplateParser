@@ -246,13 +246,19 @@ def download_zip(
 def cancel_job(
     job_id: str,
     job_svc: JobService = Depends(get_job_service),
-    cleanup: CleanupService = Depends(get_cleanup_service),
     queue: Queue = Depends(get_queue),
 ) -> dict:
-    """Drop all queued subtasks, flag worker to stop, then cleanup.
+    """Tombstone the job: drop queued subtasks now, let running ones stop
+    cooperatively, and defer artifact cleanup.
 
-    Already-running subtasks finish their current xlsx (avoids corruption);
-    subsequent subtasks see the flag in `run_subtask` and skip.
+    Queued (not-yet-started) subtasks are dropped from the RQ queue
+    immediately. A subtask already running keeps writing its current xlsx
+    but checks `is_cancel_requested` again before the writer stage and
+    before `mark_done`/`mark_failed`, so it stops without touching state or
+    output once cancelled. Because a running subtask may still be mid-write,
+    we do NOT delete the job dir here — `CleanupService` sweeps cancelled
+    jobs once no subtask is `running` (or, as a fallback for a dead worker,
+    once `cancelled_at` is older than `job_timeout_min + 1` minutes).
     """
     try:
         state = job_svc.get_state(job_id)
@@ -270,8 +276,6 @@ def cancel_job(
             rq_job.cancel()
             rq_job.delete()
 
-    # Sweep artifacts immediately. Running subtasks fail safely on next mark_*.
-    cleanup.delete_job(job_id)
     return {"job_id": job_id, "status": "cancelled"}
 
 

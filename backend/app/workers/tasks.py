@@ -26,7 +26,7 @@ from ..core.preview import (
 from ..schemas import ConfigSchema, JobState, SubtaskState
 from ..services.cleanup_service import CleanupService
 from ..services.config_service import ConfigService
-from ..services.job_service import JobService
+from ..services.job_service import JobNotFound, JobService
 from ..settings import get_settings
 
 log = structlog.get_logger(__name__)
@@ -46,6 +46,7 @@ def _wire():
             jobs_dir=settings.jobs_dir,
             grace_minutes=settings.download_grace_minutes,
             retention_hours=settings.job_retention_hours,
+            job_timeout_min=settings.job_timeout_min,
         ),
         settings,
     )
@@ -78,7 +79,10 @@ def run_subtask(job_id: str, source_file: str) -> None:
         try:
             if out_path.exists():
                 bound.info("subtask.skip", reason="already_done")
-                job_svc.mark_done(job_id, source_file, duration_ms=0)
+                is_last = job_svc.mark_done(job_id, source_file, duration_ms=None)
+                if is_last:
+                    from .queue import enqueue_finalize, make_queue
+                    enqueue_finalize(make_queue(redis), job_id)
                 return
             state = job_svc.get_state(job_id)
             break
@@ -101,26 +105,44 @@ def run_subtask(job_id: str, source_file: str) -> None:
     started = time.monotonic()
     job_svc.mark_running(job_id, source_file)
 
+    # Second cooperative check: a job cancelled while this subtask was
+    # queued/starting stops here, before the writer produces `out_path`.
+    # (parse/join/map above are in-memory only — nothing to undo.)
+    if job_svc.is_cancel_requested(job_id):
+        bound.info("subtask.cancelled_midway", stage="pre_write")
+        _safe_mark_subtask_cancelled(job_svc, bound, job_id, source_file)
+        return
+
     try:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         _execute(job_dir, source_file, config, out_path, chunk_size=settings.parse_chunk_size)
     except CoreError as exc:
-        is_last = job_svc.mark_failed(job_id, source_file, exc.user_message, exc.tech_detail)
+        is_last = _safe_mark_failed(job_svc, bound, job_id, source_file, exc.user_message, exc.tech_detail)
         bound.error("subtask.failed", **exc.context, exc_info=True)
         if is_last:
             from .queue import enqueue_finalize, make_queue
             enqueue_finalize(make_queue(redis), job_id)
         raise
     except Exception as exc:
-        is_last = job_svc.mark_failed(job_id, source_file, "未預期錯誤，請聯絡管理員", tech_detail=repr(exc))
+        is_last = _safe_mark_failed(job_svc, bound, job_id, source_file, "未預期錯誤，請聯絡管理員", repr(exc))
         bound.exception("subtask.unexpected")
         if is_last:
             from .queue import enqueue_finalize, make_queue
             enqueue_finalize(make_queue(redis), job_id)
         raise
 
+    # Third cooperative check: cancelled while the writer ran. The output
+    # file (if it landed) is left in place — it gets purged with the rest
+    # of the job dir once CleanupService sweeps this cancelled job.
+    if job_svc.is_cancel_requested(job_id):
+        bound.info("subtask.cancelled_midway", stage="pre_mark_done")
+        _safe_mark_subtask_cancelled(job_svc, bound, job_id, source_file)
+        return
+
     duration_ms = int((time.monotonic() - started) * 1000)
-    is_last = job_svc.mark_done(job_id, source_file, duration_ms=duration_ms)
+    is_last = _safe_mark_done(job_svc, bound, job_id, source_file, duration_ms)
+    if is_last is None:
+        return
     bound.info("subtask.done", duration_ms=duration_ms, is_last=is_last)
 
     if is_last:
@@ -129,6 +151,42 @@ def run_subtask(job_id: str, source_file: str) -> None:
         # completing subtask so finalize is guaranteed to run after all done.
         from .queue import enqueue_finalize, make_queue
         enqueue_finalize(make_queue(redis), job_id)
+
+
+def _safe_mark_done(
+    job_svc: JobService, bound, job_id: str, source_file: str, duration_ms: int
+) -> bool | None:
+    """`mark_done`, but tolerant of the job dir being gone (cancelled + swept
+    mid-flight). Returns None (instead of raising) when that happens so the
+    caller can treat it as "nothing left to finalize"."""
+    try:
+        return job_svc.mark_done(job_id, source_file, duration_ms=duration_ms)
+    except JobNotFound:
+        bound.warning("subtask.job_gone", stage="mark_done")
+        return None
+
+
+def _safe_mark_subtask_cancelled(
+    job_svc: JobService, bound, job_id: str, source_file: str
+) -> None:
+    """`mark_subtask_cancelled`, but tolerant of the job dir being gone
+    (cancelled + swept mid-flight before this cooperative check ran)."""
+    try:
+        job_svc.mark_subtask_cancelled(job_id, source_file)
+    except JobNotFound:
+        bound.warning("subtask.job_gone", stage="mark_subtask_cancelled")
+
+
+def _safe_mark_failed(
+    job_svc: JobService, bound, job_id: str, source_file: str, user_message: str, tech_detail: str
+) -> bool | None:
+    """`mark_failed`, but tolerant of the job dir being gone (cancelled + swept
+    mid-flight). Returns None instead of raising."""
+    try:
+        return job_svc.mark_failed(job_id, source_file, user_message, tech_detail)
+    except JobNotFound:
+        bound.warning("subtask.job_gone", stage="mark_failed")
+        return None
 
 
 def _execute(

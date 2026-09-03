@@ -1,10 +1,15 @@
 """Job artifact cleanup: download-triggered deletes, grace expiry, and TTL purge.
 
-Three entry points:
+Four entry points:
 
-- `delete_job(id)`         — immediate, used after a successful download or cancel
-- `purge_grace_expired()`  — every 10 min, deletes jobs whose download grace ended
-- `purge_old_jobs(...)`    — every hour, deletes jobs older than the retention window
+- `delete_job(id)`          — immediate, used after a successful download
+- `purge_grace_expired()`   — every 10 min, deletes jobs whose download grace ended
+- `purge_old_jobs(...)`     — every hour, deletes jobs older than the retention window
+- `purge_cancelled_jobs()`  — every 10 min (same tick as grace), tombstone sweep for
+                              cancelled jobs: deleted once no subtask is still
+                              `running`, or after `job_timeout_min + 1` minutes
+                              regardless (fallback for a worker that died mid-subtask
+                              and will never flip that subtask out of `running`).
 """
 
 from __future__ import annotations
@@ -28,11 +33,13 @@ class CleanupService:
         jobs_dir: Path,
         grace_minutes: int = 60,
         retention_hours: int = 24,
+        job_timeout_min: int = 10,
     ) -> None:
         self.redis = redis
         self.dir = jobs_dir
         self.grace_minutes = grace_minutes
         self.retention_hours = retention_hours
+        self.job_timeout_min = job_timeout_min
 
     # ---- direct delete ----
 
@@ -94,6 +101,32 @@ class CleanupService:
                     count += 1
         if count:
             log.info("cleanup.retention", deleted=count, threshold_hours=hours)
+        return count
+
+    def purge_cancelled_jobs(self) -> int:
+        """Sweep the cancel tombstone: delete a cancelled job once nothing is
+        still `running`, or unconditionally once `cancelled_at` is older than
+        `job_timeout_min + 1` minutes (fallback for a worker that died mid-
+        subtask and will never flip it out of `running`).
+        """
+        if not self.dir.exists():
+            return 0
+        cutoff_seconds = self.job_timeout_min * 60 + 60
+        now = datetime.now(UTC)
+        count = 0
+        for state in self._iter_states():
+            if state.status != "cancelled":
+                continue
+            still_running = any(s.status == "running" for s in state.subtasks.values())
+            timed_out = (
+                state.cancelled_at is not None
+                and (now - _parse_iso(state.cancelled_at)).total_seconds() > cutoff_seconds
+            )
+            if not still_running or timed_out:
+                if self.delete_job(state.job_id):
+                    count += 1
+        if count:
+            log.info("cleanup.cancelled_swept", deleted=count)
         return count
 
     # ---- internals ----

@@ -36,6 +36,7 @@ async def lifespan(app: FastAPI):
         jobs_dir=settings.jobs_dir,
         grace_minutes=settings.download_grace_minutes,
         retention_hours=settings.job_retention_hours,
+        job_timeout_min=settings.job_timeout_min,
     )
     queue = make_queue(redis, settings)
 
@@ -57,6 +58,7 @@ async def lifespan(app: FastAPI):
     # 2) one-shot cleanup at startup (covers downtime overlap with retention)
     try:
         cleanup.purge_grace_expired()
+        cleanup.purge_cancelled_jobs()
         cleanup.purge_old_jobs()
     except Exception:
         log.exception("lifespan.startup_cleanup_failed")

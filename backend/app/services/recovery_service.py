@@ -7,6 +7,7 @@ subtask's output xlsx already exists, the worker will skip it.
 from __future__ import annotations
 
 import time
+import zipfile
 from pathlib import Path
 
 import structlog
@@ -41,6 +42,7 @@ def scan_and_resume(
     count = 0
     enqueue_failed = 0
     finalize_reenqueued = 0
+    reconciled = 0
     now = time.time()
     for child in sorted(jobs_dir.iterdir()):
         state_file = child / "state.json"
@@ -84,9 +86,53 @@ def scan_and_resume(
         if not is_terminal:
             out_dir = child / "out"
             for source_file, sub in state.subtasks.items():
-                # Skip outputs that already exist (idempotency).
-                if (out_dir / f"{source_file}.out.xlsx").exists():
-                    continue
+                out_path = out_dir / f"{source_file}.out.xlsx"
+                if out_path.exists():
+                    # Already reflected in state.json (normal idempotency) —
+                    # nothing to reconcile.
+                    if sub.status in ("done", "failed"):
+                        continue
+                    # A worker can be killed between the output's os.replace
+                    # and mark_done: the file is on disk but the subtask is
+                    # still pending/running, so it (and the job) would
+                    # otherwise sit forever with nothing left to re-enqueue.
+                    # Validate the file before trusting it as "done".
+                    try:
+                        if zipfile.is_zipfile(out_path):
+                            with zipfile.ZipFile(out_path) as zf:
+                                valid = zf.testzip() is None
+                        else:
+                            valid = False
+                    except (zipfile.BadZipFile, OSError):
+                        valid = False
+                    if valid:
+                        is_last = job_service.mark_done(state.job_id, source_file, duration_ms=None)
+                        reconciled += 1
+                        log.info(
+                            "recovery.reconciled_output",
+                            job_id=state.job_id,
+                            source_file=source_file,
+                        )
+                        if is_last and enqueue_finalize is not None:
+                            try:
+                                enqueue_finalize(state.job_id)
+                            except Exception:
+                                log.exception(
+                                    "recovery.finalize_reenqueue_failed",
+                                    job_id=state.job_id,
+                                )
+                            else:
+                                finalize_reenqueued += 1
+                                log.info("recovery.finalize_reenqueued", job_id=state.job_id)
+                        continue
+                    # Corrupt/truncated output (crash mid-write, disk error) —
+                    # remove it and fall through to the normal re-enqueue path.
+                    out_path.unlink(missing_ok=True)
+                    log.info(
+                        "recovery.invalid_output_removed",
+                        job_id=state.job_id,
+                        source_file=source_file,
+                    )
                 if sub.status == "done":
                     continue
                 try:
@@ -126,11 +172,12 @@ def scan_and_resume(
                         finalize_reenqueued += 1
                         log.info("recovery.finalize_reenqueued", job_id=state.job_id)
 
-    if count or enqueue_failed or finalize_reenqueued:
+    if count or enqueue_failed or finalize_reenqueued or reconciled:
         log.info(
             "recovery.resumed",
             subtasks=count,
             enqueue_failed=enqueue_failed,
             finalize_reenqueued=finalize_reenqueued,
+            reconciled=reconciled,
         )
     return count

@@ -54,6 +54,7 @@ def get_cleanup_service(
         jobs_dir=settings.jobs_dir,
         grace_minutes=settings.download_grace_minutes,
         retention_hours=settings.job_retention_hours,
+        job_timeout_min=settings.job_timeout_min,
     )
 
 

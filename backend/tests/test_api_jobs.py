@@ -166,6 +166,9 @@ def test_batch_snapshot(api_client, target_xlsx, orders_xlsx, customers_xlsx):
 
 
 def test_cancel_pending_job(api_client, target_xlsx, orders_xlsx, customers_xlsx):
+    """Cancel is a tombstone now: an all-pending job's dir is NOT swept
+    immediately — CleanupService's periodic sweep handles that once nothing
+    is running (see test_cleanup_service.py)."""
     _save_config(api_client)
     files = _multipart(target_xlsx, [("orders.xlsx", orders_xlsx)], [("customers", customers_xlsx)])
     r = api_client.post("/api/jobs", data={"config_name": "demo"}, files=files)
@@ -175,8 +178,41 @@ def test_cancel_pending_job(api_client, target_xlsx, orders_xlsx, customers_xlsx
     assert r.status_code == 200
     assert r.json()["status"] == "cancelled"
 
-    # Artifacts swept.
-    assert not (api_client.data_dir / "jobs" / job_id).exists()
+    state = api_client.get(f"/api/jobs/{job_id}/state").json()
+    assert state["status"] == "cancelled"
+    assert state["cancelled_at"] is not None
+
+    # Artifacts deferred, not swept immediately.
+    assert (api_client.data_dir / "jobs" / job_id).exists()
+
+
+def test_cancel_drops_queued_rq_jobs_but_keeps_dir_while_subtask_running(
+    api_client, target_xlsx, orders_xlsx, customers_xlsx,
+):
+    """A subtask still `running` must not be deleted out from under it:
+    cancel drops queued RQ jobs and flags the job, but the job dir survives
+    until CleanupService sweeps it (no subtask left running, or timeout)."""
+    _save_config(api_client)
+    files = _multipart(
+        target_xlsx,
+        [("a.xlsx", orders_xlsx), ("b.xlsx", orders_xlsx)],
+        [("customers", customers_xlsx)],
+    )
+    r = api_client.post("/api/jobs", data={"config_name": "demo"}, files=files)
+    job_id = r.json()["job_id"]
+
+    from app.dependencies import get_job_service
+    job_svc = api_client.app.dependency_overrides[get_job_service]()
+    job_svc.mark_running(job_id, "a.xlsx")
+
+    queued = api_client.recorded_queue.push_queued({"job_id": job_id, "source_file": "b.xlsx"})
+
+    r = api_client.post(f"/api/jobs/{job_id}/cancel")
+    assert r.status_code == 200
+
+    assert queued.cancelled and queued.deleted
+    assert api_client.recorded_queue.get_jobs() == []
+    assert (api_client.data_dir / "jobs" / job_id).exists()
 
 
 def test_download_404_before_zip_ready(api_client, target_xlsx, orders_xlsx, customers_xlsx):

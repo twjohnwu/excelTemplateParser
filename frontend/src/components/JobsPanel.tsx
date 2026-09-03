@@ -21,7 +21,7 @@ export function JobsPanel({ recents, snapshots, onChange }: Props) {
   const ready: RecentJob[] = [];
   for (const j of recents) {
     const snap = snapshots[j.id];
-    if (snap && (snap.status === "done" || snap.status === "failed")) ready.push(j);
+    if (snap && (snap.status === "done" || snap.status === "failed" || snap.status === "cancelled")) ready.push(j);
     else active.push(j);
   }
 

@@ -1,3 +1,4 @@
+import shutil
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
@@ -84,6 +85,19 @@ def test_eta_computed_after_threshold(svc):
     assert snap.eta_seconds == 10
 
 
+def test_eta_ignores_none_duration_subtasks(svc):
+    """Recovery/idempotent-skip paths mark_done with duration_ms=None (no
+    real timing available) — the average must skip those, not treat them as
+    instantaneous (duration_ms=0), or ETA is understated."""
+    svc.create("j", _config(), [f"f{i}.xlsx" for i in range(11)])
+    for i in range(5):
+        svc.mark_done("j", f"f{i}.xlsx", 1000)  # 1s each, real timings
+    svc.mark_done("j", "f5.xlsx", duration_ms=None)  # reconciled, no timing
+    snap = svc.get_snapshot("j")
+    # avg 1s (over the 5 real samples only) × 5 remaining = 5s
+    assert snap.eta_seconds == 5
+
+
 def test_download_expires_at_absent_before_first_download(svc):
     svc.create("j", _config(), ["a.xlsx"])
     snap = svc.get_snapshot("j")
@@ -161,6 +175,32 @@ def test_mark_running_on_done_subtask_logs_illegal_transition_and_is_noop(svc):
 
     assert svc.get_state("j").subtasks["a.xlsx"].status == "done"
     assert any(entry.get("event") == "illegal_transition_ignored" for entry in logs)
+
+
+def test_mark_done_after_dir_removed_raises_and_leaves_no_orphan(svc, tmp_path):
+    """A late mark_done arriving after the job dir was purged (cancelled +
+    swept) must raise JobNotFound WITHOUT resurrecting an orphan dir/lock
+    file that nothing else would ever clean up."""
+    svc.create("j", _config(), ["a.xlsx"])
+    shutil.rmtree(tmp_path / "jobs" / "j")
+
+    with pytest.raises(JobNotFound):
+        svc.mark_done("j", "a.xlsx", duration_ms=1)
+
+    assert not (tmp_path / "jobs" / "j").exists()
+
+
+def test_finalize_lock_after_dir_removed_raises_and_leaves_no_orphan(svc, tmp_path):
+    """Same guarantee for the finalize lock: no orphan dir/lock file left
+    behind for a job whose state.json is already gone."""
+    svc.create("j", _config(), ["a.xlsx"])
+    shutil.rmtree(tmp_path / "jobs" / "j")
+
+    with pytest.raises(JobNotFound):
+        with svc.finalize_lock("j"):
+            pass
+
+    assert not (tmp_path / "jobs" / "j").exists()
 
 
 def test_list_active_ids(svc):

@@ -1,7 +1,8 @@
 """APScheduler setup: in-process, async, registered in FastAPI lifespan.
 
-Three recurring jobs:
+Four recurring jobs:
 - purge_grace_expired every 10 minutes
+- purge_cancelled_jobs every 10 minutes (same cadence as the grace sweep)
 - purge_old_jobs every hour
 - resume (scan_and_resume backstop) every `resume_scan_seconds`
   (settings.RESUME_SCAN_SECONDS, optional)
@@ -34,6 +35,13 @@ def build_scheduler(
         trigger="interval",
         minutes=10,
         id="purge_grace_expired",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        cleanup.purge_cancelled_jobs,
+        trigger="interval",
+        minutes=10,
+        id="purge_cancelled_jobs",
         replace_existing=True,
     )
     scheduler.add_job(

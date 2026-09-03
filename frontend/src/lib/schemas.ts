@@ -148,7 +148,7 @@ export type Config = z.infer<typeof configSchema>;
 // ---------- Runtime DTOs ----------
 
 export type JobStatus = "pending" | "running" | "done" | "failed" | "cancelled";
-export type SubtaskStatus = "pending" | "running" | "done" | "failed";
+export type SubtaskStatus = "pending" | "running" | "done" | "failed" | "cancelled";
 
 export type JobSnapshot = {
   job_id: string;
@@ -181,4 +181,5 @@ export type JobState = {
   download_started_at?: string | null;
   subtasks: Record<string, SubtaskState>;
   cancel_requested: boolean;
+  cancelled_at?: string | null;
 };

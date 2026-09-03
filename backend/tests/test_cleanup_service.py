@@ -89,3 +89,66 @@ def test_purge_old_jobs_custom_threshold(jobs, cleanup):
     jobs.create("any", _config(), ["a.xlsx"])
     # Threshold 0 hours: everything is "old".
     assert cleanup.purge_old_jobs(older_than_hours=0) == 1
+
+
+@pytest.fixture
+def cleanup_short_timeout(redis_client, tmp_path) -> CleanupService:
+    return CleanupService(
+        redis=redis_client,
+        jobs_dir=tmp_path / "jobs",
+        grace_minutes=60,
+        retention_hours=24,
+        job_timeout_min=10,
+    )
+
+
+def test_purge_cancelled_deletes_when_nothing_running(jobs, cleanup_short_timeout, tmp_path):
+    jobs.create("c1", _config(), ["a.xlsx"])
+    jobs.mark_cancelled("c1")  # no subtask ever started -> none running
+
+    assert cleanup_short_timeout.purge_cancelled_jobs() == 1
+    assert not (tmp_path / "jobs" / "c1").exists()
+
+
+def test_purge_cancelled_keeps_job_with_running_subtask_and_fresh_cancelled_at(
+    jobs, cleanup_short_timeout, tmp_path,
+):
+    jobs.create("c2", _config(), ["a.xlsx"])
+    jobs.mark_running("c2", "a.xlsx")
+    jobs.mark_cancelled("c2")  # cancelled_at is "now" -> well within timeout
+
+    assert cleanup_short_timeout.purge_cancelled_jobs() == 0
+    assert (tmp_path / "jobs" / "c2").exists()
+
+
+def test_purge_cancelled_deletes_running_job_once_cancelled_at_is_stale(
+    jobs, cleanup_short_timeout, tmp_path,
+):
+    jobs.create("c3", _config(), ["a.xlsx"])
+    jobs.mark_running("c3", "a.xlsx")
+    jobs.mark_cancelled("c3")
+    # Backdate cancelled_at past job_timeout_min(10) + 1 min = 11 min.
+    state = jobs.get_state("c3")
+    state.cancelled_at = (datetime.now(UTC) - timedelta(minutes=12)).isoformat()
+    (tmp_path / "jobs" / "c3" / "state.json").write_text(
+        state.model_dump_json(indent=2), encoding="utf-8"
+    )
+
+    assert cleanup_short_timeout.purge_cancelled_jobs() == 1
+    assert not (tmp_path / "jobs" / "c3").exists()
+
+
+def test_purge_cancelled_deletes_once_running_subtask_flips_to_cancelled(
+    jobs, cleanup_short_timeout, tmp_path,
+):
+    """The realistic cancel path: a subtask was `running` when cancel was
+    requested, then the worker's cooperative-cancel exit flips it to
+    `cancelled` (not left stuck at `running`). The fast path must fire
+    immediately instead of waiting for the timeout fallback."""
+    jobs.create("c4", _config(), ["a.xlsx"])
+    jobs.mark_running("c4", "a.xlsx")
+    jobs.mark_cancelled("c4")
+    jobs.mark_subtask_cancelled("c4", "a.xlsx")
+
+    assert cleanup_short_timeout.purge_cancelled_jobs() == 1
+    assert not (tmp_path / "jobs" / "c4").exists()

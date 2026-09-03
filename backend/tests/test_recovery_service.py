@@ -37,11 +37,24 @@ def test_resume_reenqueues_pending(jobs, tmp_path):
     assert ("j", "b.xlsx") in enqueued
 
 
+def _make_valid_xlsx(path):
+    """Write a minimal but genuinely valid xlsx (a real zip)."""
+    from openpyxl import Workbook
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wb = Workbook()
+    wb.save(path)
+
+
 def test_resume_skips_existing_outputs(jobs, tmp_path):
+    """Output exists AND the subtask is already marked done — nothing to
+    reconcile or re-enqueue. (The "output exists but subtask still pending"
+    case is covered separately below — that one gets reconciled, not
+    skipped: see test_resume_reconciles_output_written_before_crash.)"""
     jobs.create("j", _config(), ["a.xlsx", "b.xlsx"])
     out_dir = tmp_path / "jobs" / "j" / "out"
-    out_dir.mkdir(parents=True)
-    (out_dir / "a.xlsx.out.xlsx").write_bytes(b"already done")
+    _make_valid_xlsx(out_dir / "a.xlsx.out.xlsx")
+    jobs.mark_done("j", "a.xlsx", duration_ms=10)
 
     enqueued: list[tuple[str, str]] = []
     n = scan_and_resume(
@@ -215,6 +228,105 @@ def test_resume_does_not_reenqueue_finalize_for_cancelled_job(jobs, tmp_path):
     )
 
     assert finalized == []
+
+
+def test_resume_reconciles_output_written_before_crash(jobs, tmp_path):
+    """Worker killed between os.replace and mark_done: output exists but the
+    subtask is still pending. Recovery must reconcile it (mark_done +
+    finalize), not re-enqueue it and not leave the job stuck forever."""
+    jobs.create("j", _config(), ["a.xlsx"])
+    out_dir = tmp_path / "jobs" / "j" / "out"
+    _make_valid_xlsx(out_dir / "a.xlsx.out.xlsx")
+
+    enqueued: list[tuple[str, str]] = []
+    finalized: list[str] = []
+    n = scan_and_resume(
+        jobs_dir=tmp_path / "jobs",
+        job_service=jobs,
+        enqueue_subtask=lambda jid, src: enqueued.append((jid, src)),
+        enqueue_finalize=lambda jid: finalized.append(jid),
+    )
+
+    assert enqueued == []
+    assert n == 0
+    state = jobs.get_state("j")
+    assert state.subtasks["a.xlsx"].status == "done"
+    assert state.subtasks["a.xlsx"].duration_ms is None
+    assert state.status == "done"
+    assert finalized == ["j"]
+
+
+def test_resume_removes_corrupt_output_and_reenqueues(jobs, tmp_path):
+    """Output exists but is garbage (truncated/corrupt write) — recovery must
+    not trust it as done; it removes the file and re-enqueues the subtask."""
+    jobs.create("j", _config(), ["a.xlsx"])
+    out_dir = tmp_path / "jobs" / "j" / "out"
+    out_dir.mkdir(parents=True)
+    garbage = out_dir / "a.xlsx.out.xlsx"
+    garbage.write_bytes(b"not a real zip file at all")
+
+    enqueued: list[tuple[str, str]] = []
+    n = scan_and_resume(
+        jobs_dir=tmp_path / "jobs",
+        job_service=jobs,
+        enqueue_subtask=lambda jid, src: enqueued.append((jid, src)),
+    )
+
+    assert not garbage.exists()
+    assert enqueued == [("j", "a.xlsx")]
+    assert n == 1
+    state = jobs.get_state("j")
+    assert state.subtasks["a.xlsx"].status == "pending"
+
+
+def test_resume_output_exists_but_subtask_already_done_is_noop(jobs, tmp_path):
+    """Output exists AND the subtask is already marked done (the normal,
+    already-reconciled case) — recovery must not re-mark_done or finalize
+    again. Uses a 2-subtask job so the job itself stays non-terminal and the
+    per-subtask `sub.status in ("done", "failed")` skip is what's exercised
+    (not the outer is_terminal guard)."""
+    jobs.create("j", _config(), ["a.xlsx", "b.xlsx"])
+    out_dir = tmp_path / "jobs" / "j" / "out"
+    _make_valid_xlsx(out_dir / "a.xlsx.out.xlsx")
+    jobs.mark_done("j", "a.xlsx", duration_ms=50)
+
+    enqueued: list[tuple[str, str]] = []
+    finalized: list[str] = []
+    n = scan_and_resume(
+        jobs_dir=tmp_path / "jobs",
+        job_service=jobs,
+        enqueue_subtask=lambda jid, src: enqueued.append((jid, src)),
+        enqueue_finalize=lambda jid: finalized.append(jid),
+    )
+
+    assert enqueued == [("j", "b.xlsx")]
+    assert finalized == []
+    assert n == 1
+    state = jobs.get_state("j")
+    assert state.subtasks["a.xlsx"].status == "done"
+    assert state.subtasks["a.xlsx"].duration_ms == 50  # untouched by reconciliation
+
+
+def test_resume_reconciles_only_the_pending_output_in_multi_subtask_job(jobs, tmp_path):
+    jobs.create("j", _config(), ["a.xlsx", "b.xlsx"])
+    out_dir = tmp_path / "jobs" / "j" / "out"
+    _make_valid_xlsx(out_dir / "a.xlsx.out.xlsx")  # a: output written, mark_done never ran
+
+    enqueued: list[tuple[str, str]] = []
+    finalized: list[str] = []
+    n = scan_and_resume(
+        jobs_dir=tmp_path / "jobs",
+        job_service=jobs,
+        enqueue_subtask=lambda jid, src: enqueued.append((jid, src)),
+        enqueue_finalize=lambda jid: finalized.append(jid),
+    )
+
+    assert enqueued == [("j", "b.xlsx")]
+    assert n == 1
+    state = jobs.get_state("j")
+    assert state.subtasks["a.xlsx"].status == "done"
+    assert state.subtasks["b.xlsx"].status == "pending"
+    assert finalized == []  # b.xlsx still outstanding — no finalize yet
 
 
 def test_resume_empty_dir_returns_zero(jobs, tmp_path):
