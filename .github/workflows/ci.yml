@@ -43,7 +43,8 @@ jobs:
 
   docker-smoke:
     needs: [backend, frontend]
-    runs-on: ubuntu-latest
+    # 22.04 pinned: Playwright 1.40's --with-deps still installs libasound2, renamed libasound2t64 on 24.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
