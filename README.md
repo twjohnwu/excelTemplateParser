@@ -6,6 +6,22 @@ Batch-convert many Excel files of the same format into another format. Author th
 
 ---
 
+## Contents
+
+- [Features](#features)
+- [Quick start](#quick-start)
+- [How it works](#how-it-works)
+- [Walkthrough](#walkthrough)
+- [Examples](#examples)
+- [Architecture](#architecture)
+- [Design docs](#design-docs)
+- [Out of scope](#out-of-scope)
+- [Contributing](#contributing)
+- [Changelog](#changelog)
+- [License](#license)
+
+---
+
 ## Features
 
 - **Subtask-level resume** — each primary file = one task; if a worker crashes mid-batch, completed `out/*.xlsx` files are skipped on restart (idempotent recovery via `recovery_service.scan_and_resume()`).
@@ -19,21 +35,16 @@ Batch-convert many Excel files of the same format into another format. Author th
 
 ---
 
-## One-command launch
+## Quick start
 
 ```bash
 bash scripts/up.sh
-# → http://localhost:5173
 ```
 
-`scripts/up.sh` rebuilds `frontend/dist/` locally only if it's missing or stale, then runs `docker compose up -d` to start four services (redis / api / worker / frontend).
+- UI: http://localhost:5173
+- API: http://localhost:8000
 
-To refresh a specific service after changes:
-
-```bash
-docker compose restart worker            # backend code is bind-mounted from ./backend
-cd frontend && npm run build && docker compose up -d --force-recreate frontend
-```
+Full setup, dev workflow, environment variables, and CI: [`docs/setup.md`](docs/setup.md).
 
 ---
 
@@ -144,111 +155,7 @@ End-to-end scenarios live under [`examples/`](./examples). Each one ships with `
 
 **Error handling** — Boundary-only. Core functions only `raise`; the worker and FastAPI layers catch at their respective edges, persist to `state.json` and emit structured `structlog` JSON. Every error response carries a `request_id` so `docker compose logs api | grep <id>` finds the full traceback.
 
----
-
-## Repository layout
-
-```
-excelTemplateParser/
-├── docker-compose.yml
-├── README.md            ← this file
-├── README.zh-TW.md      ← 繁體中文版
-├── AGENTS.md            ← english reference for collaborating agents
-├── scripts/
-│   ├── up.sh            ← one-command launcher
-│   ├── smoke_test.py    ← §8 automated end-to-end (14 scenarios)
-│   ├── resume_test.py   ← §8.9 mid-batch worker restart
-│   └── VERIFICATION_REPORT.md
-├── backend/
-│   ├── pyproject.toml   ← Python 3.12+, FastAPI, RQ, openpyxl, structlog, APScheduler
-│   ├── Dockerfile
-│   └── app/
-│       ├── main.py              ← FastAPI entry + lifespan
-│       ├── settings.py          ← env config
-│       ├── schemas.py           ← Pydantic ConfigSchema
-│       ├── logging_config.py    ← structlog JSON
-│       ├── api/{templates,configs,jobs}.py
-│       ├── services/{config,job,recovery,cleanup}_service.py + scheduler.py
-│       ├── core/{parser,joiner,mapper,writer,zipper,preflight,preview,exceptions}.py
-│       ├── middleware/{request_id,upload_limit}.py
-│       └── workers/{queue,tasks,run}.py
-├── frontend/
-│   ├── package.json     ← React 18 + Vite + TS + shadcn/ui + zod + TanStack Query
-│   ├── Dockerfile       ← single-stage nginx:alpine (serves dist/)
-│   ├── nginx.conf       ← static + /api/ proxy to api:8000
-│   └── src/
-│       ├── pages/{ConfigBuilder,BatchRunner,JobDetail}.tsx
-│       ├── features/config-builder/{SourcesTree,JoinsEditor,MappingsList,MappingRow,ChecklistRail,PreviewDialog}.tsx
-│       ├── features/batch-runner/{NewBatchForm,JobsList}.tsx
-│       ├── components/{TopMenuBar,JobsPanel,FileDropzone,SheetHeaderPicker,ConditionChip,ui/*}.tsx
-│       ├── hooks/{useJobSnapshot,useConfigs,useDebounce,usePreviewConfig}.ts
-│       ├── lib/{api,recentJobs,schemas,utils,configHelpers,previewHelpers,issueHelpers}.ts
-│       ├── i18n/{index.ts, zh-TW.json, en.json}
-│       └── theme/ThemeProvider.tsx
-└── data/                ← Runtime artefacts (git-ignored)
-```
-
----
-
-## Development & testing
-
-### Backend
-
-```bash
-cd backend
-python3 -m venv .venv && source .venv/bin/activate    # Python 3.12+ required
-pip install -e ".[dev]"
-pytest                    # unit tests (core / services / api / workers)
-```
-
-Key unit test files:
-
-| File | Covers |
-|---|---|
-| `tests/test_parser.py` | xlsx → DataFrame, header_row handling, corrupt file detection |
-| `tests/test_joiner.py` | Multi-hop joins, missing key errors |
-| `tests/test_mapper.py` | All 7 operators, conditions, defaults, auto-union of mapping targets |
-| `tests/test_writer.py` | Style preservation, appending unknown columns |
-| `tests/test_*_service.py` | Redis + file dual-write, ETA, cancel, grace expire, recovery |
-| `tests/test_api_*.py` | FastAPI endpoints, 422 / 409, SSE, multipart shape |
-| `tests/test_worker_pipeline.py` | End-to-end pipeline (idempotent skip, cancel flag, partial failure) |
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run typecheck         # tsc --noEmit
-npm run build             # produces dist/
-npm run dev               # Vite dev server with HMR
-```
-
-### End-to-end
-
-```bash
-bash scripts/up.sh                                  # bring the stack up
-backend/.venv/bin/python scripts/smoke_test.py      # automated end-to-end scenarios
-backend/.venv/bin/python scripts/resume_test.py     # restart-mid-batch resume
-```
-
-Full §8 coverage (22 items, §8.2–8.23) is documented in [`scripts/VERIFICATION_REPORT.md`](scripts/VERIFICATION_REPORT.md).
-
----
-
-## Environment variables
-
-Set in `.env` or `docker-compose.yml`.
-
-| Var | Default | Purpose |
-|---|---|---|
-| `REDIS_URL` | `redis://redis:6379/0` | Redis connection |
-| `DATA_DIR` | `./data` | Filesystem root for configs / jobs / redis AOF; can point at NAS or external drive |
-| `MAX_UPLOAD_MB` | `50` | Per-file upload ceiling |
-| `RQ_WORKERS` | `4` | Worker concurrency |
-| `JOB_TIMEOUT_MIN` | `10` | Per-subtask timeout |
-| `DOWNLOAD_GRACE_MINUTES` | `60` | ZIP re-download grace window |
-| `JOB_RETENTION_HOURS` | `24` | Sweep undownloaded jobs after N hours |
-| `LOG_LEVEL` | `INFO` | structlog level |
+Repository layout: see [docs/setup.md](docs/setup.md#repository-layout).
 
 ---
 
@@ -260,6 +167,7 @@ Full design narrative and decision log:
 - [`docs/case_study.md`](docs/case_study.md) — seven-round design dialogue + a post-launch round of eight user-reported iterations
 - [`docs/decisions_log.md`](docs/decisions_log.md) — 37 entries spanning the full arc: 22 design-phase turning points + 9 post-launch iterations + 6 UX-overhaul entries, in three parts
 - [`docs/learnings.md`](docs/learnings.md) — ten cross-decision distillations (six design + four iteration)
+- [`docs/setup.md`](docs/setup.md) — setup, dev workflow, environment variables, CI
 
 OpenSpec spec layer (mirrored from the parent monorepo; design-phase snapshot, code is authoritative):
 

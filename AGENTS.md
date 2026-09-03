@@ -18,13 +18,13 @@ backend/
   app/
     api/         # FastAPI routers (templates / configs / jobs)
     services/    # config_service, job_service, recovery_service, cleanup_service + scheduler.py
-    core/        # Pure functions: parser / joiner / mapper / writer / zipper / preflight / preview / exceptions
+    core/        # Pure functions: parser / joiner / mapper / writer / zipper / preflight / preview / atomic_io / exceptions
     middleware/  # request_id.py, upload_limit.py
     workers/     # tasks.py (RQ subtask + finalize), queue.py, run.py
     main.py      # FastAPI entry + lifespan (recovery + scheduler)
     settings.py
     schemas.py   # Pydantic ConfigSchema (mirror of frontend zod schema)
-  tests/         # pytest unit tests (17 files: core / services / api / workers)
+  tests/         # pytest unit tests (19 files: core / services / api / workers)
   pyproject.toml
   Dockerfile
 frontend/
@@ -38,14 +38,17 @@ frontend/
     theme/             # ThemeProvider.tsx, ThemeProvider.test.tsx
   Dockerfile
   nginx.conf
+  e2e/                 # Playwright specs (one per VERIFICATION_REPORT §8 row) + fixtures/
 docs/
   spec/                # proposal / design / tasks / spec (design-phase snapshot; code is authoritative)
-  decisions_log.md     # 22 design decisions + 9 post-launch iterations + 6 UX-overhaul entries
+  decisions_log.md     # 22 design decisions + 9 post-launch iterations + 6 UX-overhaul entries + 1 crash-safety entry
   case_study.md, learnings.md, plan.md
+  setup.md, setup.zh-TW.md  # install / dev / env / CI
   ss/                  # Screenshots for README walkthrough
 scripts/               # up.sh, smoke_test.py, resume_test.py, VERIFICATION_REPORT.md
 data/                  # Default DATA_DIR mount point (redis/, configs/, jobs/) — gitignored
 docker-compose.yml
+.github/workflows/ci.yml  # backend, frontend, docker-smoke (+ Playwright)
 ```
 
 ## Local Development
@@ -80,13 +83,14 @@ cd ../frontend
 npm install
 npm test -- --run                   # vitest unit tests
 npm run typecheck                   # tsc --noEmit
+npm run e2e   # Playwright, needs the docker stack up
 ```
 
 ## Key Conventions
 
 - **Error boundaries**: `core/` only raises `CoreError` subclasses with `user_message` + `tech_detail`; worker and FastAPI handlers catch at edges and never re-raise after logging. Mid-core `try/except` for "just logging" is forbidden — it swallows stack traces.
 - **State**: every job lives at `/data/jobs/{id}/` with `state.json` as the persistent source of truth; Redis caches the same. Read-modify-write of `state.json` is wrapped by `JobService._locked_state` (`fcntl.flock`).
-- **Idempotency**: workers skip subtasks whose `out/{primary}.out.xlsx` already exists, enabling resume after crashes. `mark_done` returns `is_last` so the last subtask re-enqueues `finalize_job` (safety net against the build-time finalize racing ahead).
+- **Crash safety / idempotency**: every persistent write (`state.json`, `out/*.out.xlsx`, the ZIP) goes through `core/atomic_io.py` (same-dir temp file + fsync + `os.replace`), so "final path exists" means "complete" — recovery and `run_subtask` skip on existence alone, and `scan_and_resume` sweeps `.tmp-*` older than `JOB_TIMEOUT_MIN + 60 s` (younger ones may be in flight). Status changes go through the transition tables in `job_service.py` (`SUBTASK_TRANSITIONS` / `JOB_TRANSITIONS`, illegal → `IllegalTransition`); `mark_done`/`mark_failed` on an already-terminal subtask are no-ops returning `is_last=False`. `finalize_job` returns early if the ZIP exists and packs under `JobService.finalize_lock`. RQ ids are deterministic (`{job}__sub__{sha1(name)[:16]}`, `{job}__finalize`); `enqueue_*` skip when that id is queued, or started with a heartbeat younger than 90 s, and reclaim stale started jobs otherwise; the API also re-runs `scan_and_resume` every `RESUME_SCAN_SECONDS` (default 120) as a backstop, so API and worker may both scan.
 - **Logging**: `structlog` JSON output. Every log line carries `request_id` (API) or `job_id` + `source_file` (worker).
 - **Schema dual-maintenance**: `backend/app/schemas.py` (pydantic) and `frontend/src/lib/schemas.ts` (zod) are two language versions of the same `ConfigSchema`. Any field add / remove / xor change MUST touch both files and align cross-field validation.
 - **Mapping has three modes**: `source` (`alias.col`), `source_cell` (`{alias, address}` for absolute xlsx cell read), and `literal`. The three are mutually exclusive (validated in both pydantic and zod). Mapper branches on them; worker's `_resolve_source_cells` pre-resolves cell mode via openpyxl before the joiner stage. Adding a fourth mode touches schemas (both ends) + mapper + worker pre-resolver + `MappingRow.tsx` toggle.
@@ -109,6 +113,8 @@ npm run typecheck                   # tsc --noEmit
 | Touch error path | Preserve `user_message` + `tech_detail` split; ensure `request_id` flows through to the response; never `try/except` mid-core just to log |
 | Change config JSON shape | Bump or sanity-check the `version` field; check `inferColumnsFromConfig` and `mergeMappingsWithColumns` still work on old shapes; wrap new optional strings with `nullishToUndef`; regression-test LOADING previously saved configs, not just creating new ones |
 | Add a user-facing string | i18n keys in both locales (never a literal — `i18nGuard.test.ts` will fail); validation messages as `err.*` keys resolved at display boundary |
+| Touch job/subtask status | Go through `_transition` + the tables; never assign `.status` directly. Add the edge to both tables and a test in `test_job_service.py` |
+| Add a file the worker persists | Write it via `core/atomic_io.py`; recovery treats existence as completion |
 
 ## Environment Variables
 
