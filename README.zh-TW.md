@@ -2,6 +2,8 @@
 
 [English](README.md) · **繁體中文**
 
+[![CI](https://github.com/twjohnwu/excelTemplateParser/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/twjohnwu/excelTemplateParser/actions/workflows/ci.yml) [![Version](https://img.shields.io/badge/version-0.1.0-blue)](CHANGELOG.md)
+
 把同一格式的多份 Excel 批次轉換為另一種格式。設定一次、重複套用；單機 Docker 部署，不需登入。UI 支援繁中／英文與淺色／黑暗模式，皆會持久化於瀏覽器。
 
 ---
