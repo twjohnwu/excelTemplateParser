@@ -227,6 +227,7 @@ def finalize_job(job_id: str) -> None:
             return
         zipper.pack(out_dir, zip_path, summary=summary)
         bound.info("finalize.packed", zip=str(zip_path))
+    job_svc.mark_complete(job_id)
 
 
 def _build_summary(state: JobState, config_svc: ConfigService) -> str:

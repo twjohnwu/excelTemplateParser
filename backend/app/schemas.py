@@ -208,3 +208,6 @@ class JobSnapshot(BaseModel):
     config_name: str | None = None
     # Present only when a download has been started AND the job dir still exists.
     download_expires_at: str | None = None
+    # True once result.zip exists on disk — gates the UI download button
+    # independent of `status` (a "failed" job can still have a partial ZIP).
+    zip_ready: bool = False

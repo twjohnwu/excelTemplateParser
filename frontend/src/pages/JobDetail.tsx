@@ -123,7 +123,7 @@ export function JobDetail() {
             {t("jobs.cancel")}
           </Button>
         )}
-        {snapshot.status === "done" && (() => {
+        {snapshot.zip_ready && (() => {
           const expiresAt = snapshot.download_expires_at ? new Date(snapshot.download_expires_at) : null;
           const expired = expiresAt != null && new Date() >= expiresAt;
           return (
@@ -146,6 +146,10 @@ export function JobDetail() {
           );
         })()}
       </div>
+
+      {snapshot.status === "failed" && snapshot.zip_ready && (
+        <p className="text-xs text-muted-foreground">{t("jobs.partialDownloadHint")}</p>
+      )}
 
       {state && (
         <div className="rounded-md border">

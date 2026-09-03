@@ -68,9 +68,19 @@ test("a bad-data primary fails only its own subtask, packing a ZIP with the rest
   expect(snap.done).toBe(4);
   expect(snap.failed).toBe(1);
 
-  // The UI only shows a download button when status === "done" (JobDetail.tsx),
-  // so a partial-failure ZIP is never reachable from the UI even though the
-  // backend produces one — exercised directly against the API here.
+  // JobDetail gates the download button on `zip_ready` (not status === "done"),
+  // so the partial-failure ZIP is reachable from the UI itself.
+  const downloadButton = page.getByRole("button", { name: new RegExp(en.jobs.download) });
+  await expect(downloadButton).toBeVisible();
+  await expect(page.getByText(en.jobs.partialDownloadHint)).toBeVisible();
+
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    downloadButton.click(),
+  ]);
+  expect(download.suggestedFilename()).toMatch(/\.zip$/);
+
+  // Confirm the downloaded artifact is non-empty via the API too.
   const zipResp = await page.request.get(`/api/jobs/${jobId}/zip`);
   expect(zipResp.ok()).toBe(true);
   const buf = await zipResp.body();

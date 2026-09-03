@@ -213,6 +213,7 @@ class JobService:
             grace = get_settings().download_grace_minutes
             started = datetime.fromisoformat(state.download_started_at)
             download_expires_at = (started + timedelta(minutes=grace)).isoformat()
+        zip_ready = (self._job_dir(job_id) / "result.zip").exists()
         return JobSnapshot(
             job_id=job_id,
             status=state.status,
@@ -222,6 +223,7 @@ class JobService:
             eta_seconds=self._eta_seconds(state),
             config_name=state.config_name,
             download_expires_at=download_expires_at,
+            zip_ready=zip_ready,
         )
 
     def list_active_ids(self) -> list[str]:

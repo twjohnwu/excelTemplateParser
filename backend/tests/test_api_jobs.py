@@ -187,3 +187,44 @@ def test_download_404_before_zip_ready(api_client, target_xlsx, orders_xlsx, cus
 
     r = api_client.get(f"/api/jobs/{job_id}/zip")
     assert r.status_code == 404  # zip not generated yet
+
+
+def test_snapshot_zip_ready_reflects_zip_file_presence(
+    api_client, target_xlsx, orders_xlsx, customers_xlsx
+):
+    _save_config(api_client)
+    files = _multipart(target_xlsx, [("orders.xlsx", orders_xlsx)], [("customers", customers_xlsx)])
+    r = api_client.post("/api/jobs", data={"config_name": "demo"}, files=files)
+    job_id = r.json()["job_id"]
+
+    r = api_client.get(f"/api/jobs/{job_id}")
+    assert r.json()["zip_ready"] is False
+
+    (api_client.data_dir / "jobs" / job_id / "result.zip").write_bytes(b"PK\x05\x06" + b"\x00" * 18)
+
+    r = api_client.get(f"/api/jobs/{job_id}")
+    assert r.json()["zip_ready"] is True
+
+
+def test_snapshot_zip_ready_true_for_failed_job_with_partial_zip(
+    api_client, target_xlsx, orders_xlsx, customers_xlsx
+):
+    """A job with status 'failed' (some subtasks errored) still exposes
+    zip_ready=true once finalize_job packed the partial-success ZIP."""
+    _save_config(api_client)
+    files = _multipart(target_xlsx, [("orders.xlsx", orders_xlsx)], [("customers", customers_xlsx)])
+    r = api_client.post("/api/jobs", data={"config_name": "demo"}, files=files)
+    job_id = r.json()["job_id"]
+
+    job_dir = api_client.data_dir / "jobs" / job_id
+    state = json.loads((job_dir / "state.json").read_text("utf-8"))
+    state["status"] = "failed"
+    for sub in state["subtasks"].values():
+        sub["status"] = "failed"
+    (job_dir / "state.json").write_text(json.dumps(state), encoding="utf-8")
+    (job_dir / "result.zip").write_bytes(b"PK\x05\x06" + b"\x00" * 18)
+
+    r = api_client.get(f"/api/jobs/{job_id}")
+    body = r.json()
+    assert body["status"] == "failed"
+    assert body["zip_ready"] is True

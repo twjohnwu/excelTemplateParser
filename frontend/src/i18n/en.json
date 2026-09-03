@@ -37,7 +37,8 @@
       "message": "Message"
     },
     "downloadGrace": "Re-download available until {{time}}",
-    "downloadExpired": "Download window expired"
+    "downloadExpired": "Download window expired",
+    "partialDownloadHint": "Some files failed; the ZIP contains the successful outputs."
   },
   "config": {
     "name": "Project name",

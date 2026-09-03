@@ -384,6 +384,32 @@ def test_finalize_job_concurrent_calls_pack_twice_without_lock(
     assert len(calls) == 2
 
 
+def test_finalize_publishes_finalized_event_once(
+    wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx,
+):
+    """The download button gates on zip_ready over SSE — finalize_job must
+    publish a `finalized` event exactly once when it actually packs, and
+    not at all on the already-packed early-return path."""
+    _setup_job(wired, orders_xlsx, customers_xlsx, sales_xlsx, target_xlsx)
+    worker_tasks.run_subtask("job1", "orders.xlsx")
+
+    published = []
+    real_publish = JobService._publish
+    monkeypatch_publish = lambda self, job_id, payload: (
+        published.append(payload) or real_publish(self, job_id, payload)
+    )
+    wired["job_svc"]._publish = monkeypatch_publish.__get__(wired["job_svc"], JobService)
+
+    worker_tasks.finalize_job("job1")
+    finalized_events = [p for p in published if p.get("type") == "finalized"]
+    assert len(finalized_events) == 1
+
+    published.clear()
+    worker_tasks.finalize_job("job1")  # zip already exists -> early return
+    finalized_events = [p for p in published if p.get("type") == "finalized"]
+    assert finalized_events == []
+
+
 def test_finalize_skips_cancelled(wired):
     cfg = _config()
     wired["config_svc"].save(cfg)

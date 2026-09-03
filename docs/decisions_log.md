@@ -793,6 +793,6 @@ if (json === EMPTY_PERSISTABLE_JSON) return;  // 不寫也不刪
 
 **學到什麼**：先問「不變量是什麼」（最終路徑只能有完整檔）再選機制；驗證用 kill -9 演練而非只看 exists。第一版 sanitizer 與「started 即進行中」兩個假設都是 kill -9 演練抓出來的，單元測試沒抓到。
 
-補記：8.20 e2e 走查發現一個尚未裁決的產品缺口——JobDetail 的下載按鈕只在 `status === "done"` 時顯示，partial-failure（status 為 failed 但 ZIP 已存在）時看不到下載鈕；待裁決，本次未修。
+補記（2026-09-03）：8.20 e2e 走查發現的下載按鈕缺口已修——snapshot 新增 `zip_ready`（依 `result.zip` 是否存在），JobDetail／JobsList 改依此欄位而非 `status === "done"` 顯示下載鈕，partial-failure 也能從 UI 下載。
 
 ---

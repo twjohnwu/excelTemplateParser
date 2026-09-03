@@ -114,7 +114,7 @@ export function JobsList({ refreshKey, highlightJobId, onClearHighlight }: Props
                 />
               </div>
             )}
-            {snap?.status === "done" && (
+            {snap?.zip_ready && (
               <a
                 href={`/api/jobs/${j.id}/zip`}
                 className="inline-block text-xs text-blue-600 underline"

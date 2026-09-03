@@ -161,6 +161,8 @@ export type JobSnapshot = {
   config_name?: string | null;
   /** ISO 8601 expiry time for re-download; absent before first download or after job dir is purged. */
   download_expires_at?: string | null;
+  /** True once result.zip exists on disk; gates the download button independent of `status`. */
+  zip_ready?: boolean;
 };
 
 export type SubtaskState = {

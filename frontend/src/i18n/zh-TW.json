@@ -37,7 +37,8 @@
       "message": "訊息"
     },
     "downloadGrace": "可重新下載至 {{time}}",
-    "downloadExpired": "下載時效已過"
+    "downloadExpired": "下載時效已過",
+    "partialDownloadHint": "部分檔案失敗，ZIP 內為成功的輸出。"
   },
   "config": {
     "name": "專案名稱",
