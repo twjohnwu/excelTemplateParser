@@ -796,3 +796,15 @@ if (json === EMPTY_PERSISTABLE_JSON) return;  // 不寫也不刪
 補記（2026-09-03）：8.20 e2e 走查發現的下載按鈕缺口已修——snapshot 新增 `zip_ready`（依 `result.zip` 是否存在），JobDetail／JobsList 改依此欄位而非 `status === "done"` 顯示下載鈕，partial-failure 也能從 UI 下載。
 
 ---
+
+## 2. 跨資源一致性與取消語意
+
+**最初想法**：atomic replace 讓「檔案存在即完整」，recovery 看到 output 就跳過；取消時立刻 rmtree job 目錄。
+
+**為什麼錯**：檔案與 state.json 是兩個資源。worker 在 `os.replace` 之後、`mark_done` 之前被 kill，state 仍 pending，recovery 跳過又不對帳，job 永卡；`run_subtask` 的 output-exists 分支也丟掉 `is_last`。取消立刻刪目錄則讓 running worker 寫 zombie output、`mark_done` 撞 `JobNotFound`。
+
+**現在做法**：recovery 遇「output 存在、subtask 非 terminal」→ 驗 zip 完整性 → `mark_done(duration_ms=0)` 對帳，最後一個就 enqueue finalize；壞檔刪掉重排。取消改為 tombstone：保留 state 與目錄、刪 queued RQ jobs、worker 在寫檔前與 `mark_done` 前合作式檢查 cancel flag，cleanup 在無 running subtask（或逾時）後才刪目錄。
+
+**學到什麼**：單一資源原子性不等於跨資源一致性；每個「看到 X 就跳過」的捷徑都要問「X 存在但 Y 沒跟上時誰對帳」。
+
+---

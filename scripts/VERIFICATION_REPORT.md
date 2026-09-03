@@ -5,7 +5,7 @@ End-to-end verification of `excelTemplateParser`. Run after
 
 | # | Scenario | Method | Result |
 |---|---|---|---|
-| 8.1 | `pytest backend/tests/` all green | unit | ✓ 171 passed |
+| 8.1 | `pytest backend/tests/` all green | unit | ✓ 206 passed |
 | 8.2 | docker compose up | smoke_test.py | ✓ `/api/health` returns `{"ok":true}` |
 | 8.3 | Flow A: save config | smoke_test.py | ✓ POST/GET/list all 200 |
 | 8.4 | Flow B: batch 3 primary + 2 lookup | smoke_test.py | ✓ status=done, ZIP contains 3 outputs + `_summary.txt` |
@@ -22,7 +22,7 @@ End-to-end verification of `excelTemplateParser`. Run after
 | 8.15 | Sheet/header row picker | `e2e/sheet-header-picker.spec.ts` | ✓ multi-sheet upload, sheet switch, row-click sets header_row |
 | 8.16 | Preflight rejects missing column | smoke_test.py | ✓ 422 with column name in detail |
 | 8.17 | Duplicate primary filename rejected | smoke_test.py | ✓ 422 |
-| 8.18 | Cancel mid-flight job | smoke_test.py | ✓ cancel→200, job purged (404 on snapshot) |
+| 8.18 | Cancel mid-flight job | smoke_test.py | ✓ cancel→200, job is a tombstone (200, status=cancelled, cancelled_at set) |
 | 8.19 | ETA after ≥5 subtasks done | `e2e/eta.spec.ts` | ✓ eta_seconds observed non-null via SSE while running, ≥5/12 done |
 | 8.20 | Partial failure ZIP packaging | `e2e/partial-failure.spec.ts` | ✓ 4 done + 1 failed → ZIP with 4 outputs; corrupt file rejects whole batch |
 | 8.21 | Download grace period (re-download within window) | smoke_test.py | ✓ second GET /zip within grace returns 200 |
@@ -61,9 +61,9 @@ End-to-end verification of `excelTemplateParser`. Run after
 These are exactly the kind of race conditions called out as unverified
 in `docs/case_study.md` ("Subtask 級續傳的 race condition... 需要實作時驗"
 and disaster persistence). The §8 verification stage caught them, the
-fixes shipped, and `pytest` (171 tests) is still green after the changes.
+fixes shipped, and `pytest` (206 tests) is still green after the changes.
 
-> Updated 2026-07-05: test count grew to 171 after the UX-overhaul additions.
+> Updated 2026-09-03: test count is 206 after subsequent additions.
 
 ## How to reproduce
 
@@ -80,7 +80,5 @@ backend/.venv/bin/python scripts/resume_test.py
 
 ## Manual items not run here
 
-- 8.6 memory ceiling — needs a ~30 MB fixture and `docker stats` while running
-- 8.8 / 8.15 / 8.23 / 8.24 — browser UI interactions (frontend builds clean and tsc passes; routes/components wired)
-- 8.19 ETA badge — backend logic verified in unit test; UI binding present in `JobDetail.tsx`
-- 8.20 partial failure ZIP UI label — unit-tested in worker pipeline
+- 8.6 memory ceiling — needs a ~30 MB fixture and `docker stats` while running; the only scenario still verified manually
+- 8.8 / 8.15 / 8.19 / 8.20 / 8.23 / 8.24 — run as Playwright e2e specs in CI (`frontend/e2e/`, `.github/workflows/ci.yml`), not manual checks

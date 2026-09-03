@@ -182,7 +182,7 @@ OpenSpec spec layer (mirrored from the parent monorepo; design-phase snapshot, c
 
 - User accounts, multi-tenancy, permissions
 - Excel formula re-evaluation (formulas are preserved as-is; Excel recomputes on open)
-- Cloud deployment, CI/CD
+- Cloud deployment / production delivery pipeline (GitHub Actions runs tests and smoke only; nothing is deployed)
 - Template version control (saving with the same name overwrites; UI prompts for confirmation)
 
 ---
