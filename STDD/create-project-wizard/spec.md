@@ -1,7 +1,7 @@
 ---
 status: approved
 approved_date: 2026-09-10
-approved_fingerprint: 89aabe5327d537607f11b7b208c217318d2fe67ddf1665e80148aa9d92498dc7
+approved_fingerprint: 89ca6252e0d3b99eacb16ac30d67a242ac21feb385c1c3869dfa9f0cd63f5655
 design_ux_fingerprint: 2f3fb602fbc27b7b9c95fce1f391f20672ce24684b9f844dd735682c691fb1e6
 language: zh-TW
 ---
@@ -330,7 +330,13 @@ hover、tooltip）才看得到的容器內。（不以「不超過兩行」計�
 
 系統 SHALL 讓精靈的草稿讀寫使用與工作台相同的 `localStorage` key
 `etp.configDraft.v1`（`frontend/src/pages/ConfigBuilder.tsx:43`），SHALL NOT
-另開第二把 key。
+另開第二把 key。系統 SHALL 讓草稿寫入路徑在當下狀態為 pristine
+（`isPristineState(state)` 為真）時略過寫入，SHALL NOT 因為某次掛載恰好是
+pristine 狀態而覆蓋或清除 `localStorage[DRAFT_KEY]` 中已存在的草稿；這個判斷
+要放在共用寫入 helper 內部、還是放在呼叫方（精靈/工作台）呼叫 helper 之前，
+由實作決定，本規格不指定。這個不變量與 S-16「payload 不得加入精靈專屬欄位」
+是正交的兩件事——前者管「pristine 狀態下該不該寫」，後者管「寫入時 payload
+裡有哪些鍵」，不得被合併成同一個判準（見 S-20）。
 
 #### S-13: 精靈開始的草稿可被工作台讀回、反之亦然——除 File 物件外逐欄位相等
 
@@ -363,15 +369,19 @@ autosave 前把 `target.file`、每個 `sources[i].file` 設成 `undefined`
 #### S-14: 兩個介面各自寫草稿時，後寫入者覆蓋前者；每次寫入帶版本與寫入者標記
 
 `ConfigBuilder.tsx:222-228` 只在掛載時讀一次草稿，`:270-279` 的 autosave
-在任何變更後約 1 秒無條件寫入，沒有 `storage` 事件監聽——精靈與工作台若
-同時開在兩個分頁，後寫入者會覆蓋前者，沒有仲裁機制。這是既有行為（兩個
-工作台分頁同時開著，今天就會互相覆蓋）；本次變更讓可能發生覆蓋的場景變多
-（精靈 + 工作台），因此把「接受 last-writer-wins，但要能事後看出是誰寫的」
-固定成契約：
+在狀態非 pristine 時、於變更後約 1 秒寫入（pristine 狀態依 REQ-08 新增的
+anti-clobber 不變量略過寫入，見 S-20），沒有 `storage` 事件監聽——精靈與
+工作台若同時開在兩個分頁、且兩邊寫入的都是非 pristine 狀態，後寫入者會
+覆蓋前者，沒有仲裁機制。這是既有行為（兩個工作台分頁同時開著，今天就會
+互相覆蓋）；本次變更讓可能發生覆蓋的場景變多（精靈 + 工作台），因此把
+「接受 last-writer-wins，但要能事後看出是誰寫的」固定成契約：
 
-- **GIVEN** 精靈以純模組（REQ-11，`frontend/src/lib/configForm.ts`）的草稿
-  寫入 helper 寫入一次草稿
-- **WHEN** 工作台接著（模擬另一個分頁）以同一個 helper 寫入一次草稿
+- **GIVEN** 精靈已有一個非 pristine 的狀態（例如已填入 `name` 或至少一筆
+  `mappings`——若狀態是 pristine，依 REQ-08 的 anti-clobber 不變量根本不會
+  寫入，本場景無從觀察 `_draftMeta`），以純模組（REQ-11，`frontend/src/lib/
+  configForm.ts`）的草稿寫入 helper 寫入一次草稿
+- **WHEN** 工作台接著（模擬另一個分頁）以同一個 helper、同樣是非 pristine
+  的狀態，寫入一次草稿
 - **THEN** 每一次寫入 SHALL 在 payload 中附加一個版本/形狀標記與寫入者標記
   （例如 `_draftMeta: { version: number, writer: "wizard" | "workbench" }`）
 - **AND** 最終存於 `localStorage["etp.configDraft.v1"]` 的內容 SHALL 是
@@ -421,20 +431,25 @@ autosave 前把 `target.file`、每個 `sources[i].file` 設成 `undefined`
 使得之後任何一次工作台掛載都會顯示「有草稿待還原」的提示，但還原後其實是
 一份空白設定。
 
-- **GIVEN** 精靈掛載後從未變更任何欄位（狀態等於 REQ-11 抽出的
-  `emptyState()`）
+- **GIVEN** 精靈已有一個非 pristine 的狀態（例如 `name` 非空、且至少有一筆
+  `mappings`——依 REQ-08 的 anti-clobber 不變量，pristine 狀態的寫入路徑
+  根本不會執行寫入，本場景要檢查的是「寫入真的發生時 payload 裡有哪些鍵」，
+  因此 GIVEN 必須是非 pristine 狀態，這與 S-14 GIVEN 的理由相同），且元件
+  內部另外持有一個精靈專屬的步驟指標（例如目前在第幾步），這個指標不屬於
+  `FormState`/persistable 欄位
 - **WHEN** 系統執行等同於 debounced autosave 的寫入路徑（`configForm.ts`
-  的寫入 helper；此路徑下寫入確實會執行、並依 S-14 附加 `_draftMeta`）
+  的寫入 helper；因狀態非 pristine，這次寫入確實會執行、並依 S-14 附加
+  `_draftMeta`）
 - **THEN** 系統 SHALL：把這次寫入產生的字串以 `JSON.parse` 還原成物件、
-  移除其中的 `_draftMeta` 鍵、再以 `JSON.stringify` 重新序列化，其結果
-  SHALL 與 `EMPTY_PERSISTABLE_JSON`（`toPersistable(emptyState())` 的序列化
-  結果）逐字元相同——即使精靈為了呈現「目前在第幾步」而在元件內部持有一個
-  步驟指標，該指標 SHALL NOT 被序列化進這份共用的草稿 payload 裡
-- **AND** 這個比對能逐字元成立，是因為 `_draftMeta` SHALL 以
-  `{ ...toPersistable(state), _draftMeta: {...} }` 的展開順序寫入：物件鍵的
-  插入順序（決定 `JSON.stringify` 的輸出順序）固定是「persistable 欄位維持
-  原始順序在前，`_draftMeta` 附加在最後一個鍵」，移除 `_draftMeta` 後剩餘
-  鍵的順序必然與 `EMPTY_PERSISTABLE_JSON` 相同
+  移除其中的 `_draftMeta` 鍵，剩餘鍵的集合 SHALL 恰好等於
+  `toPersistable(state)` 的鍵集合，不多也不少——即使精靈為了呈現「目前在
+  第幾步」而在元件內部持有一個步驟指標，該指標 SHALL NOT 被序列化進這份
+  共用的草稿 payload 裡
+- **AND** `_draftMeta` SHALL 以 `{ ...toPersistable(state), _draftMeta: {...}
+  }` 的展開順序寫入：物件鍵的插入順序（決定 `JSON.stringify` 的輸出順序）
+  固定是「persistable 欄位維持原始順序在前，`_draftMeta` 附加在最後一個
+  鍵」，移除 `_draftMeta` 後剩餘鍵的順序必然與 `toPersistable(state)` 本身
+  的鍵順序相同
 
 **Test mapping**: `frontend/src/lib/configForm.test.ts::pristineStateSerializesToExactEmptyPersistableJson`
 **Verification command**: `cd frontend && npm test -- src/lib/configForm.test.ts`
@@ -529,6 +544,35 @@ xlsx 檔重複發送解析請求。
 **Test mapping**: `frontend/src/pages/WizardPage.test.tsx::keepsStepContentMountedAcrossNavigationNoDuplicateParseCall`
 **Verification command**: `cd frontend && npm test -- src/pages/WizardPage.test.tsx`
 
+#### S-20: pristine 狀態掛載時不得覆蓋既有草稿（write-side anti-clobber 不變量）
+
+本場景鎖死 REQ-08 新增的不變量，與 S-16 正交：S-16 管「寫入真的發生時
+payload 裡有哪些鍵」，本場景管「pristine 狀態下該不該寫」。這個不變量今天
+已經存在於 `ConfigBuilder.tsx:270-279`（`if (json === EMPTY_PERSISTABLE_JSON)
+return;`，`:273`）——一份把「pristine 序列化恰好等於 EMPTY_PERSISTABLE_JSON」
+與「pristine 狀態不該寫入」耦合在一起的舊版規格文字，曾導致兩份各自獨立的
+實作把這個 guard 當成規格要移除的實作細節而刪除：使用者建立一份設定、離開，
+下次造訪時精靈或工作台以 pristine 狀態掛載，約 1 秒後 debounced autosave
+以 pristine payload 覆蓋掉原本的草稿；使用者若沒有點擊「還原草稿」就重新整
+理或離開，草稿即永久遺失且不再出現還原提示，沒有任何錯誤或警告。本場景
+明訂：**移除這個 guard 的實作下 SHALL 為 RED，本次規格修訂後、guard 以任何
+等效形式（helper 內部或呼叫方）存在的實作下 SHALL 為 GREEN**——這正是既有
+測試箱缺少、導致兩次獨立走查都放行這個資料遺失缺陷的檢查。
+
+- **GIVEN** `localStorage["etp.configDraft.v1"]` 已存放一份真實的、非
+  pristine 的草稿字串（例如工作台先前寫入、`name`/`mappings` 皆非預設值，
+  且帶有合法的 `_draftMeta`）
+- **WHEN** 精靈（或工作台）以 pristine 狀態（`emptyState()`）掛載，觸發
+  等同於 debounced autosave 的寫入路徑，測試以 fake timers 快轉超過
+  `DEBOUNCE_MS` 的時間，過程中沒有任何欄位被使用者變更
+- **THEN** `localStorage["etp.configDraft.v1"]` 的內容 SHALL 與掛載前種入
+  的字串逐字元相同——草稿 SHALL NOT 被覆蓋，也 SHALL NOT 被清除
+- **AND** 若呼叫方依儲存內容顯示「有草稿待還原」的提示，該提示 SHALL 仍然
+  顯示——草稿存在的事實不因這次 pristine 掛載而改變
+
+**Test mapping**: `frontend/src/lib/configForm.test.ts::pristineWriteAttemptDoesNotClobberExistingStoredDraft`
+**Verification command**: `cd frontend && npm test -- src/lib/configForm.test.ts`
+
 ### REQ-11: 抽出共用純模組 frontend/src/lib/configForm.ts
 
 系統 SHALL 將目前定義在 `ConfigBuilder.tsx` 內、精靈與工作台都需要的邏輯
@@ -615,6 +659,25 @@ preserving extraction，行為不變），匯出：`FormState` 型別、`emptySt
   需求授權建立這個模組。抽取本身現在成為一項需求，且明訂為不依賴 React 的
   純模組，沿用既有先例 `frontend/src/lib/previewHelpers.ts`。
 
+### 追加審查（2026-09-10）：write-side anti-clobber 不變量的遺漏
+
+本規格先前版本的 S-16 把「精靈不得加入自己專屬欄位」的驗證方式，建立在
+「pristine 狀態下寫入路徑會確實執行寫入」這個未言明的前提上；同一時間，
+S-14 的敘述文字也把既有 autosave 描述成「無條件寫入」。基於本規格獨立進行
+的兩份實作，各自的三視角對抗性審查、fresh-context 計畫驗證者、`/stdd-lint`
+都沒有攔下這個問題——兩份實作各自的走查都把 `ConfigBuilder.tsx:270-279`
+現行的 pristine-skip guard（`:273` 的 `if (json === EMPTY_PERSISTABLE_JSON)
+return;`，用來防止掛載時以空白狀態覆蓋既有草稿）當成規格要求必須移除的
+實作細節而刪除，各自獨立重現了同一個資料遺失缺陷：使用者的既有草稿在下一次
+以 pristine 狀態掛載、debounce 逾時後被靜默覆蓋，且草稿一旦變成 pristine，
+還原提示也不會再出現。兩份獨立產出的走查都各自命中同一個缺陷，代表缺陷可
+追溯到規格本身的措辭，不是單一實作的疏漏。已修正：S-14 移除「無條件寫入」
+的敘述，改為只在非 pristine 狀態下才寫入；REQ-08 新增 write-side
+anti-clobber 不變量為明文需求，與 S-16 的欄位判準脫鉤（正交）；S-16 的驗證
+改用非 pristine 狀態的寫入結果比對鍵集合，不再依賴「pristine 寫入必然
+發生」；新增 S-20 專門鎖死這個不變量，明訂 fail-then-pass：移除 guard 的
+實作下 RED，本次修訂後的正確實作下 GREEN。
+
 本次審查有三點跨場景的結論。第一，設計原本站在對
 `docs/decisions_log.md` #11 的一種原文不支持的再解讀上；已在
 `docs/decisions_log.md`（第五部分）新增一筆決策記錄，記載「兩個入口 /
@@ -635,7 +698,7 @@ S-02、S-03 各自獨立驗證過都正確、且都在守一條本專案已經�
 - [ ] REQ-05: 輸出欄位由範本標題列與 mapping targets 共同決定，此行為在文案中明說
 - [ ] REQ-06: 終點提供唯讀全貌摘要，每段有「修改」連結跳回對應步驟且狀態保留
 - [ ] REQ-07: 存檔行為與現況一致（驗證 → POST → 清草稿 → 下載）；重名走既有 409 覆寫對話框；非 409 失敗一律顯示非空訊息
-- [ ] REQ-08: 草稿沿用既有 `localStorage` key `etp.configDraft.v1`，與工作台共用；草稿讀寫的邊界情形（並發覆寫、格式錯誤、不得夾帶精靈專屬欄位、File 遺失）有明確契約
+- [ ] REQ-08: 草稿沿用既有 `localStorage` key `etp.configDraft.v1`，與工作台共用；pristine 狀態的寫入路徑 SHALL 略過寫入、不得覆蓋既有草稿（write-side anti-clobber 不變量）；草稿讀寫的邊界情形（並發覆寫、格式錯誤、不得夾帶精靈專屬欄位、File 遺失）有明確契約
 - [ ] REQ-09: 新增路由 `/configs/wizard`，與既有 `/configs/new` 並存，兩入口透過同一個共用 `toConfig()` 產出相同設定
 - [ ] REQ-10: 空狀態、錯誤狀態、載入狀態逐步驟定義；`FileDropzone` 補上鍵盤 focus 樣式；步驟內容跨導覽不重複呼叫解析 API
 - [ ] REQ-11: 抽出共用純模組 `frontend/src/lib/configForm.ts`，不做成 React hook
@@ -658,3 +721,4 @@ S-02、S-03 各自獨立驗證過都正確、且都在守一條本專案已經�
 - [ ] S-17: 還原草稿後，File 物件與檔名皆遺失，target 步驟停留在待處理
 - [ ] S-18: `FileDropzone` 可視根元素的鍵盤 focus 樣式（fail-then-pass）
 - [ ] S-19: 步驟內容跨導覽維持掛載，不重複呼叫解析 API
+- [ ] S-20: pristine 狀態掛載時不得覆蓋既有草稿（write-side anti-clobber 不變量，fail-then-pass）

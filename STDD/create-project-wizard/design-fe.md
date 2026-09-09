@@ -17,7 +17,7 @@ contract 變更——`WizardPage` 用到的每一個端點都已存在於
 | 檔案 | 動作 | 一句話說明 |
 |---|---|---|
 | `frontend/src/lib/configForm.ts` | 新增 | REQ-11 純模組：`FormState`、`emptyState`、`toPersistable`、`isPristineState`、`toConfig`、`DRAFT_KEY`、草稿讀寫 helper、`formatSaveError`，行為原樣從 `ConfigBuilder.tsx` 抽出 |
-| `frontend/src/lib/configForm.test.ts` | 新增（未來 TDD 任務所有，本次不寫） | S-05～S-07、S-12～S-17 對應的單元測試 |
+| `frontend/src/lib/configForm.test.ts` | 新增（未來 TDD 任務所有，本次不寫） | S-05～S-07、S-12～S-17、S-20 對應的單元測試 |
 | `frontend/src/pages/ConfigBuilder.tsx` | 修改 | 刪除本檔內定義的 `DRAFT_KEY`/`FormState`/`emptyState`/`toPersistable`/`EMPTY_PERSISTABLE_JSON`/`isPristineState`/`ToConfigResult`/`toConfig`/`restoreDraft`，改為 `import` `configForm.ts`；`restoreDraft` 改用 `readDraft()` 的回傳結果 |
 | `frontend/src/pages/ConfigBuilder.test.ts` | 修改 | `:3` 的 `import { isPristineState } from "./ConfigBuilder"` 改為 `import { isPristineState } from "@/lib/configForm"` |
 | `frontend/src/pages/WizardPage.tsx` | 新增 | 精靈頁面主體，路由 `/configs/wizard`；狀態擁有者、步驟選擇、草稿讀寫接線、存檔/覆寫流程 |
@@ -137,35 +137,47 @@ export function draftWriterLabel(writer: DraftWriter): string; // "精靈" | "�
     `parsed.xxx ?? 預設值`）組出 `FormState`，回傳
     `{ ok: true, state, meta }`；`meta` 從解析結果的 `_draftMeta` 欄位取出，
     若該欄位不存在或格式不符則為 `null`（相容尚未帶 meta 的舊草稿）。
-- `writeDraft(state, writer)`（S-08 存檔清草稿之外的一般寫入路徑；S-14／S-16）：
-  1. `payload = toPersistable(state)`。
-  2. 一律寫入 `JSON.stringify({ ...payload, _draftMeta: { version:
-     DRAFT_META_VERSION, writer } })`——包含 pristine 狀態在內，不再有
-     `ConfigBuilder.tsx:273` 那種「pristine 就不寫」的分支；`_draftMeta`
-     是 `payload` 的 sibling 鍵，不是包一層 envelope。`try/catch` 吞掉
-     quota 例外（同 `ConfigBuilder.tsx:274-276`）。
-  3. pristine 判定（S-16）不再由「是否寫入」決定，改由呼叫端對已寫入的
-     字串執行「剝離 `_draftMeta` 後逐字元比對 `EMPTY_PERSISTABLE_JSON`」
-     判斷，理由見下方。
+- `writeDraft(state, writer)`（S-08 存檔清草稿之外的一般寫入路徑；S-14／
+  S-16／S-20 的 anti-clobber 不變量）：
+  1. `payload = toPersistable(state)`，`json = JSON.stringify(payload)`。
+  2. **pristine 略過寫入（REQ-08 anti-clobber 不變量，S-20）**：若
+     `json === EMPTY_PERSISTABLE_JSON`，直接 return，不寫入也不清除
+     `localStorage[DRAFT_KEY]`——這是 `ConfigBuilder.tsx:273`
+     （`if (json === EMPTY_PERSISTABLE_JSON) return;`）既有 guard 的延續，
+     搬進共用 helper 內部，不是要移除的實作細節。
+  3. 非 pristine 狀態才真正寫入：`JSON.stringify({ ...payload, _draftMeta: {
+     version: DRAFT_META_VERSION, writer } })`；`_draftMeta` 是 `payload`
+     的 sibling 鍵，不是包一層 envelope。`try/catch` 吞掉 quota 例外
+     （同 `ConfigBuilder.tsx:274-276`）。
+  4. S-14「每一次寫入 SHALL 附加版本/寫入者標記」只約束「真的發生的寫入」
+     ——步驟 2 略過的寫入不算一次寫入，不受 S-14 拘束，兩者不衝突。
 - `draftWriterLabel(writer)`（S-14）：`writer === "wizard" ? "精靈" :
   "工作台"`，供呼叫端組出「這份草稿是從精靈/工作台寫入的」提示文字。
 
-**S-14 與 S-16 的關係（已決議）**：`_draftMeta` 以 sibling 鍵形式附加在
-`toPersistable(state)` 之外（`{ ...payload, _draftMeta: {...} }`）；S-16
-的逐字元比對在移除 `_draftMeta` 之後才進行——`isPristineState`／呼叫端先
-`JSON.parse` 寫入的字串、剔除 `_draftMeta` 鍵、再 `JSON.stringify` 剩餘
-物件，結果與 `EMPTY_PERSISTABLE_JSON` 逐字元相同即視為 pristine。因此
-`writeDraft` 不再有「pristine 就不寫」的分支：每次呼叫都無條件寫入並附加
-`_draftMeta`，滿足 S-14「每一次寫入」的無條件語氣；S-16 要防止的假訊號
-（pristine 狀態被誤判為「有草稿可還原」）改由「剝離後比對」的 pristine
-判定本身保證，而不是靠「完全不寫入」達成——換言之，寫入這個動作發生與否，
-不等於是否要顯示還原提示，兩者由不同判斷分工。選這個設計是因為它相容既有
-使用者瀏覽器裡尚未帶 `_draftMeta` 的舊草稿：剝除一個原本不存在的鍵，比對
-結果不變，讀取端不需要任何遷移邏輯。連帶地，草稿偵測 effect（`:222-228`
-現行的 `if (draft && !loadName)`）也 SHALL 改用「剝離 `_draftMeta` 後是否
-等於 `EMPTY_PERSISTABLE_JSON`」判斷是否要顯示還原橫幅，而不是單純判斷
-`localStorage` 中有沒有值——否則掛載後的第一次 pristine 寫入本身就會讓
-下一次掛載誤判為「有草稿」，重新引入 S-16 要修的那個 bug。
+**S-14／S-16／S-20 的關係（已決議）**：`_draftMeta` 放置方式（sibling 鍵）
+與「pristine 狀態該不該被寫入」是兩個獨立問題，不得合併成同一個判準
+（REQ-08 明文）——前者是 S-16 的欄位形狀問題，後者是 S-20 鎖死的
+write-side anti-clobber 不變量。`writeDraft` 對 pristine 狀態的寫入請求
+一律略過（步驟 2），因此：
+
+- S-16 的逐字元比對場景 GIVEN 條件本身就要求「非 pristine 狀態」——因為
+  pristine 狀態根本不會走到「寫入 payload 裡有哪些鍵」這一步，S-16 檢查的
+  是「寫入真的發生時」的鍵集合，與 pristine 是否寫入無關，兩者正交。
+- S-14 的「每一次寫入」同理限定在非 pristine 狀態的寫入上；一次被 step 2
+  略過的呼叫不是一次寫入，`_draftMeta` 也就無從附加，這不是缺陷。
+- S-20 直接鎖死步驟 2 本身：pristine 狀態掛載、debounced 寫入路徑觸發，
+  `localStorage[DRAFT_KEY]` 的既有內容 SHALL 逐字元不變，草稿也 SHALL NOT
+  被清除——移除步驟 2 的實作下 S-20 為 RED，保留（或以呼叫端等效形式
+  存在）下為 GREEN。
+
+選擇「helper 內部略過」而非「呼叫端 gate」的理由：`writeDraft` 是精靈與
+工作台共用的唯一寫入入口，把 guard 放在 helper 內部可以讓兩邊呼叫方不需要
+各自記得在呼叫前先判斷 pristine，符合 REQ-08「由實作決定放哪裡，但不得
+被合併成同一個判準」的授權範圍。連帶地，草稿偵測 effect（`:222-228` 現行
+的 `if (draft && !loadName)`）改用 `readDraft()` 的回傳結果判斷是否顯示
+還原橫幅（有 `ok: true` 或 `ok: false` 皆視為「有草稿」），這是讀取端的
+互補保護，不是 anti-clobber 不變量本身——後者由步驟 2 的寫入端 guard
+單獨保證，兩者不互相替代。
 
 ### `ConfigBuilder.tsx` 抽取後的樣貌
 

@@ -7,8 +7,8 @@ language: zh-TW
 # tasks: create-project-wizard
 
 本次變更純前端，無 `design-be.md`、無 `api.yml`，任務清單不含後端工作。分組依
-「Module-convergence rule」逐 `Test mapping` 檔案彙總：19 個場景對映到剛好 4 個
-測試檔（`WizardPage.test.tsx` 8 個、`configForm.test.ts` 9 個、
+「Module-convergence rule」逐 `Test mapping` 檔案彙總：20 個場景對映到剛好 4 個
+測試檔（`WizardPage.test.tsx` 8 個、`configForm.test.ts` 10 個、
 `WizardStepShell.test.tsx` 1 個、`FileDropzone.test.tsx` 1 個），故收斂為 4 個
 TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景。
 
@@ -21,7 +21,7 @@ TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景�
 - [ ] REQ-05: 輸出欄位由範本標題列與 mapping targets 共同決定，此行為在文案中明說
 - [ ] REQ-06: 終點提供唯讀全貌摘要，每段有「修改」連結跳回對應步驟且狀態保留
 - [ ] REQ-07: 存檔行為與現況一致（驗證 → POST → 清草稿 → 下載）；重名走既有 409 覆寫對話框；非 409 失敗一律顯示非空訊息
-- [ ] REQ-08: 草稿沿用既有 `localStorage` key `etp.configDraft.v1`，與工作台共用；草稿讀寫的邊界情形（並發覆寫、格式錯誤、不得夾帶精靈專屬欄位、File 遺失）有明確契約
+- [ ] REQ-08: 草稿沿用既有 `localStorage` key `etp.configDraft.v1`，與工作台共用；pristine 狀態的寫入路徑 SHALL 略過寫入、不得覆蓋既有草稿（write-side anti-clobber 不變量）；草稿讀寫的邊界情形（並發覆寫、格式錯誤、不得夾帶精靈專屬欄位、File 遺失）有明確契約
 - [ ] REQ-09: 新增路由 `/configs/wizard`，與既有 `/configs/new` 並存，兩入口透過同一個共用 `toConfig()` 產出相同設定
 - [ ] REQ-10: 空狀態、錯誤狀態、載入狀態逐步驟定義；`FileDropzone` 補上鍵盤 focus 樣式；步驟內容跨導覽不重複呼叫解析 API
 - [ ] REQ-11: 抽出共用純模組 `frontend/src/lib/configForm.ts`，不做成 React hook
@@ -44,12 +44,13 @@ TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景�
 - [ ] S-17: 還原草稿後，File 物件與檔名皆遺失，target 步驟停留在待處理
 - [ ] S-18: `FileDropzone` 可視根元素的鍵盤 focus 樣式（fail-then-pass）
 - [ ] S-19: 步驟內容跨導覽維持掛載，不重複呼叫解析 API
+- [ ] S-20: pristine 狀態掛載時不得覆蓋既有草稿（write-side anti-clobber 不變量，fail-then-pass）
 
 ## Scenario → Task 對照表
 
 | Scenario | Test 檔 | Task |
 |---|---|---|
-| S-05, S-06, S-07, S-12, S-13, S-14, S-15, S-16, S-17 | `frontend/src/lib/configForm.test.ts` | Task 2 (`` `S-05,S-06,S-07,S-12,S-13,S-14,S-15,S-16,S-17` ``) |
+| S-05, S-06, S-07, S-12, S-13, S-14, S-15, S-16, S-17, S-20 | `frontend/src/lib/configForm.test.ts` | Task 2 (`` `S-05,S-06,S-07,S-12,S-13,S-14,S-15,S-16,S-17,S-20` ``) |
 | S-04 | `frontend/src/features/config-wizard/WizardStepShell.test.tsx` | Task 3 (`S-04`) |
 | S-18 | `frontend/src/components/FileDropzone.test.tsx` | Task 4 (`S-18`) |
 | S-01, S-02, S-03, S-08, S-09, S-10, S-11, S-19 | `frontend/src/pages/WizardPage.test.tsx` | Task 6 (`` `S-01,S-02,S-03,S-08,S-09,S-10,S-11,S-19` ``) |
@@ -105,7 +106,9 @@ TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景�
     `toPersistable()`（`:82-88`，`:82` 無 `export`）、`toConfig()`
     （`:107-137`，`:107` 無 `export`）、`restoreDraft()`（`:287-308`，
     是 `ConfigBuilder()` 元件內的 closure，依賴 `draftSnapshotRef`/
-    `setState`，不是模組頂層函式，無法直接加 `export`）。
+    `setState`，不是模組頂層函式，無法直接加 `export`）、autosave 的
+    pristine 略過寫入 guard（`:273`，`if (json === EMPTY_PERSISTABLE_JSON)
+    return;`，同樣是元件內 `useEffect` closure，無法直接匯出）。
   - 內容：
     1. 對 `emptyState`、`toPersistable`、`toConfig` 三個模組頂層函式加上
        `export` 關鍵字（暫時匯出）。這是暫時性動作：下一個任務（`configForm.ts`
@@ -125,11 +128,11 @@ TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景�
     3. 新增 `frontend/src/pages/ConfigBuilder.characterization.test.ts`，
        `import { emptyState, toPersistable, toConfig,
        parseDraftForCharacterization } from "./ConfigBuilder"`，針對現行
-       行為記錄「輸出」（不是實作細節），六組案例（挑選理由：覆蓋
+       行為記錄「輸出」（不是實作細節），七組案例（挑選理由：覆蓋
        `toConfig` 的成功/失敗兩種回傳形狀、column 排序規則、三種 mapping
        填值模式的 xor 分支、`toPersistable` 的 File 欄位剝離、
-       `restoreDraft` 的欄位補齊與缺鍵預設，這些正是搬移時最容易被無意
-       改掉、但現有測試完全不觸及的分支）：
+       `restoreDraft` 的欄位補齊與缺鍵預設、autosave 的 pristine 略過寫入
+       guard，這些正是搬移時最容易被無意改掉、但現有測試完全不觸及的分支）：
        - `toConfigOnEmptyStateReturnsExactIssuesSnapshot`：對
          `emptyState()` 呼叫 `toConfig()`，斷言回傳 `{ ok: false, issues
          }`，`issues` 逐筆比對 `code`/`path`/`message`（不是只斷言
@@ -159,23 +162,36 @@ TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景�
          `FormState` 中 `sources` 為 `[]`、`target.header_row` 為 `1`
          （既有預設值）、`target.file`/`sources[].file` 恆為 `null`
          （即使原始字串本來就不含 file 欄位）。
+       - `autosaveSkipsWritingPristineStateOverExistingStoredDraft`：用
+         `@testing-library/react` 的 `render` 掛載真實 `ConfigBuilder`
+         元件（本案例需額外 `import { render } from
+         "@testing-library/react"` 與 `import ConfigBuilder from
+         "./ConfigBuilder"`），先在 `localStorage["etp.configDraft.v1"]`
+         種入一份非 pristine 的既有草稿字串，掛載後以 fake timers
+         （`vi.useFakeTimers()` + `vi.advanceTimersByTime`）快轉超過
+         `DEBOUNCE_MS`，斷言 `localStorage.getItem(DRAFT_KEY)` 與掛載前
+         種入的字串逐字元相同——這正是 `:273` 的 pristine 略過寫入 guard，
+         也是下一個任務要搬進 `writeDraft()`、且 S-20 要在抽取後鎖死的
+         同一個不變量；此案例把它在抽取前就先鎖一次，避免抽取步驟把
+         `:273` 這行判斷式當成可以捨棄的實作細節。
   - 依賴：無，此任務為下一個 `configForm.ts` 抽取任務的直接前置，必須排在
     它之前執行。
   - 驗證：`cd frontend && npm test -- src/pages/ConfigBuilder.characterization.test.ts`
     passes（此測試鎖定的是「現行」行為，抽取前就應該通過，不是 RED）。
   - 判別力（discriminating property）：本測試 SHALL 在抽取前（現行
     `ConfigBuilder.tsx` 邏輯）與抽取後（`configForm.ts` 邏輯，見下一任務
-    Behaviour-preserving 步驟）皆須通過；六組斷言比對的都是從真實輸出讀出的
+    Behaviour-preserving 步驟）皆須通過；七組斷言比對的都是從真實輸出讀出的
     精確值（config 物件逐欄位、issues 陣列逐筆 code/path/message、JSON
-    字串逐字元、陣列順序），不是憑空編的期望值——搬移邏輯時若欄位順序、
-    預設值、xor 分支或序列化格式任一處被打散，至少一組斷言會變成不相等而
-    fail，這正是它與現有只覆蓋 `isPristineState` 的 `ConfigBuilder.test.ts`
-    的差異所在。
+    字串逐字元、陣列順序、pristine 掛載後 `localStorage` 內容是否被覆寫），
+    不是憑空編的期望值——搬移邏輯時若欄位順序、預設值、xor 分支、序列化
+    格式或 pristine 略過寫入的判斷任一處被打散，至少一組斷言會變成不相等
+    而 fail，這正是它與現有只覆蓋 `isPristineState` 的
+    `ConfigBuilder.test.ts` 的差異所在。
 
-- [ ] `` `S-05,S-06,S-07,S-12,S-13,S-14,S-15,S-16,S-17` `` `[NEW]` 抽出共用純模組 `configForm.ts`（REQ-11）並重接 `ConfigBuilder.tsx`
-  - Merged-task form：九個場景的 `Test mapping` 皆指向同一個檔案
+- [ ] `` `S-05,S-06,S-07,S-12,S-13,S-14,S-15,S-16,S-17,S-20` `` `[NEW]` 抽出共用純模組 `configForm.ts`（REQ-11）並重接 `ConfigBuilder.tsx`
+  - Merged-task form：十個場景的 `Test mapping` 皆指向同一個檔案
     `frontend/src/lib/configForm.test.ts`，依 module-convergence rule 合併為
-    一個任務，RED 一次寫齊九個測試函式。
+    一個任務，RED 一次寫齊十個測試函式。
   - 依賴：上方 `[INFRA]` `ConfigBuilder` 抽取前特徵化測試任務必須先完成——
     本任務的 Behaviour-preserving 步驟要重跑它，且本任務 GREEN 步驟要把
     `parseDraftForCharacterization` 暫時函式改寫為 `configForm.ts` 的
@@ -195,9 +211,13 @@ TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景�
     `attachesVersionAndWriterMetaOnDraftWrite`（S-14）、
     `returnsFailureResultOnMalformedDraftInsteadOfSwallowing`（S-15）、
     `pristineStateSerializesToExactEmptyPersistableJson`（S-16）、
-    `restoredDraftHasNullFileAndUndefinedSampleFilename`（S-17）
+    `restoredDraftHasNullFileAndUndefinedSampleFilename`（S-17）、
+    `pristineWriteAttemptDoesNotClobberExistingStoredDraft`（S-20——本測試
+    SHALL 對「移除 `:273` guard 之後的等效實作」為 RED、對「保留（或以
+    呼叫端等效形式存在）guard 的實作」為 GREEN，這正是本場景存在的理由
+    ——把驗收條件寫死成 fail-then-pass，不是單純新增一個會通過的測試）
   - Verify RED: `cd frontend && npm test -- src/lib/configForm.test.ts`
-    fails（`configForm.ts` 尚不存在，九個測試皆因找不到模組而失敗）
+    fails（`configForm.ts` 尚不存在，十個測試皆因找不到模組而失敗）
   - GREEN: 新增 `frontend/src/lib/configForm.ts`，依 `design-fe.md`
     「純模組 `frontend/src/lib/configForm.ts`（REQ-11）」節列出的完整匯出
     介面實作：`FormState`/`PersistableFormState`/`ToConfigResult`/
@@ -205,21 +225,22 @@ TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景�
     `DRAFT_KEY`/`DRAFT_META_VERSION`/`EMPTY_PERSISTABLE_JSON`/
     `DEFAULT_SAVE_ERROR_MESSAGE` 常數、`emptyState`/`toPersistable`/
     `isPristineState`/`toConfig`/`formatSaveError`/`readDraft`/`writeDraft`/
-    `draftWriterLabel` 函式（行為規格見 `design-fe.md` 第 122-168 行「行為說明」
-    段落，`readDraft`/`writeDraft` 的 `_draftMeta` sibling-鍵語意與 S-14/S-16
-    的關係亦已在該節寫死，不另行設計）。再修改
+    `draftWriterLabel` 函式（行為規格見 `design-fe.md` 第 122-181 行「行為說明」
+    段落，`writeDraft` 的 pristine 略過寫入 guard（REQ-08 anti-clobber
+    不變量，S-20）與 `_draftMeta` sibling-鍵語意、S-14/S-16 的關係亦已在該節
+    寫死，不另行設計）。再修改
     `frontend/src/pages/ConfigBuilder.tsx`：刪除上方「Existing target」列出的
     自有定義，改為從 `@/lib/configForm` import（清單同 `design-fe.md` 第
     177-189 行）；草稿偵測 effect（`:222-228`）改呼叫 `readDraft()`——**重要**：
-    判斷「要不要顯示還原橫幅」不得只看 `localStorage` 有沒有值，SHALL 依
-    `design-fe.md` 第 153-168 行訂死的規則——`writeDraft()` 之後每次寫入都
-    無條件帶上 `_draftMeta` sibling 鍵，pristine 判定改由「剝離 `_draftMeta`
-    後逐字元比對 `EMPTY_PERSISTABLE_JSON`」決定，而不是「有沒有寫入」；換言之
-    一份 pristine 的草稿在剝離 `_draftMeta` 後仍會與空狀態逐字元相同，即使它
-    已經被無條件寫入過一次，也 SHALL 不觸發還原橫幅——否則掛載後第一次
-    pristine 寫入本身就會讓下一次掛載誤判為「有草稿」，重新引入 S-16 要修的
-    假訊號 bug；
-    `restoreDraft()`（`:287-308`）改寫為 `design-fe.md` 第 196-205 行給出的
+    判斷「要不要顯示還原橫幅」改用 `readDraft()` 的回傳結果（`ok: true` 或
+    `ok: false` 皆視為「有草稿」），這是讀取端的互補保護，不是 anti-clobber
+    不變量本身；`writeDraft` 對 pristine 狀態的寫入請求一律在 helper 內部
+    直接略過（`design-fe.md` 第 140-149 行的步驟 2），不寫入也不清除
+    `localStorage[DRAFT_KEY]`——這是把 `ConfigBuilder.tsx:273`
+    （`if (json === EMPTY_PERSISTABLE_JSON) return;`）既有 guard 原樣搬進
+    `writeDraft()` 內部，SHALL NOT 在抽取過程中把這行判斷式當成可以刪除的
+    實作細節，S-20 的測試就是為了鎖死這一點；
+    `restoreDraft()`（`:287-308`）改寫為 `design-fe.md` 第 209-216 行給出的
     版本；autosave effect（`:270-279`）改呼叫
     `writeDraft(state, "workbench")`（`DEBOUNCE_MS` 的 `setTimeout` 包裹本身
     不搬動）；`handleSave` 的 catch 分支（`:328-334`）改為
@@ -258,7 +279,7 @@ TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景�
     逐行相同、未重寫第二份；`readDraft()` 沿用同一套欄位補齊規則，不另建
     一份還原邏輯）
   - Spec re-check: 重讀 `spec.md` S-05、S-06、S-07、S-12、S-13、S-14、S-15、
-    S-16、S-17，確認實作仍符合各自的 GIVEN/WHEN/THEN
+    S-16、S-17、S-20，確認實作仍符合各自的 GIVEN/WHEN/THEN
 
 - [ ] `S-04` `[NEW]` `WizardStepShell` 常駐說明/範例句與 inline 名詞定義（REQ-03, REQ-04）
   - 依賴：i18n 任務（文案來源）。不依賴 `configForm.ts`（`WizardStepShell`
@@ -394,7 +415,7 @@ TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景�
 
 ## Manual verification checklist
 
-無。`spec.md` 的 19 個場景全數對映到單元/元件測試（`Test mapping` 欄逐一
+無。`spec.md` 的 20 個場景全數對映到單元/元件測試（`Test mapping` 欄逐一
 指向具體測試檔與測試函式，無一個場景缺此欄位），未發現需要人工判斷、無法
 自動化驗證的場景。
 
@@ -405,7 +426,7 @@ flowchart TD
   I1["[INFRA] i18n wizard.* 鍵值"] --> T3["S-04 WizardStepShell"]
   I2["[INFRA] ChecklistRail activeStep/className"] --> T6
   I4["[INFRA] ConfigBuilder 特徵化測試"] --> T2
-  T2["S-05,S-06,S-07,S-12,S-13,S-14,S-15,S-16,S-17 configForm.ts 抽取"] --> T6
+  T2["S-05,S-06,S-07,S-12,S-13,S-14,S-15,S-16,S-17,S-20 configForm.ts 抽取"] --> T6
   T3 --> T6["S-01,S-02,S-03,S-08,S-09,S-10,S-11,S-19 WizardPage"]
   T4["S-18 FileDropzone focus"] -.-> T6
   T6 --> I3["[INFRA] App.tsx 路由註冊"]
