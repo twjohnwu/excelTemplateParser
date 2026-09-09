@@ -844,7 +844,7 @@ frontend/src/pages/ConfigBuilder.tsx:273
 if (json === EMPTY_PERSISTABLE_JSON) return;
 ```
 
-這一行前面的註解（`frontend/src/pages/ConfigBuilder.tsx:266-268`）寫著：「Empty state is a no-op (don't write, don't delete) so a fresh mount can't clobber an existing draft.」——這行判斷存在，就是為了防止空白狀態的掛載把既有草稿蓋掉。
+這一行前面的註解（`frontend/src/pages/ConfigBuilder.tsx:267-269`）寫著：「Empty state is a no-op (don't write, don't delete) so a fresh mount can't clobber an existing draft.」——這行判斷存在，就是為了防止空白狀態的掛載把既有草稿蓋掉。
 
 重現這個失效不需要任何異常輸入：建好一份設定、離開、回到工作台，還原提示條會出現，但 debounce 後的自動存檔大約一秒後就用初始的空白 payload 把儲存的草稿覆蓋掉。只要沒點還原就切換頁面或重新整理，工作就沒了——而且因為此時存的值已經是空白狀態，還原提示條之後也不會再出現。過程中沒有任何錯誤訊息。
 
