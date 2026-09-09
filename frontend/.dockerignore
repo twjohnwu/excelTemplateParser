@@ -1,7 +1,9 @@
 node_modules
+dist
 .vite
-src
-public
-*.config.*
-package*.json
-tsconfig*.json
+e2e
+playwright-report
+test-results
+playwright.config.ts
+tsconfig.e2e.json
+*.tsbuildinfo

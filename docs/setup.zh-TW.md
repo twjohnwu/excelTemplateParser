@@ -2,18 +2,34 @@
 
 ## 一鍵啟動
 
+只需要 Docker，不需要 Node/npm。
+
 ```bash
 bash scripts/up.sh
 # → http://localhost:5173
 ```
 
-`scripts/up.sh` 偵測 `frontend/dist/` 是否過期，需要才本機跑 `npm run build`，然後 `docker compose up -d` 起 4 個服務（redis / api / worker / frontend）。
+預設模式不在本機跑 build：`docker compose up -d` 會自己用 `frontend/Dockerfile` 的
+multi-stage build（`node:24.20.0-alpine` build stage → `nginx:alpine` runtime stage）建出
+frontend image，再起 4 個服務（redis / api / worker / frontend）。第一次跑會比較慢，因為要
+建這個 image。
+
+以下兩個旗標需要本機有 Node：
+
+- `bash scripts/up.sh --dev` — 恢復舊的 bind-mount 快速迴圈：本機跑 `npm run build`，
+  重新整理瀏覽器就套用，不用重建 image（在 `docker-compose.yml` 上疊
+  `docker-compose.dev.yml`）。
+- `bash scripts/up.sh --host-build` — Docker Hub 拉 `node:24.20.0-alpine` 卡住時的備援
+  （本機曾觀察到 TLS handshake timeout）：本機建 frontend bundle，建一個不含 Node 的
+  純 nginx image，再把本機建好的 bundle `docker cp` 進正在跑的 container。
 
 要重新整理特定服務：
 
 ```bash
-docker compose restart worker            # 套用 backend 程式變更（volume 掛 ./backend）
-cd frontend && npm run build && docker compose up -d --force-recreate frontend
+docker compose restart worker              # 套用 backend 程式變更（volume 掛 ./backend）
+docker compose up -d --build frontend      # 預設模式：重建 frontend image
+# 或在 --dev（docker-compose.dev.yml）之下：
+# cd frontend && npm run build && docker compose up -d --force-recreate frontend
 ```
 
 ---
@@ -45,7 +61,7 @@ excelTemplateParser/
 │       └── workers/{queue,tasks,run}.py
 ├── frontend/
 │   ├── package.json     ← React 18 + Vite + TS + shadcn/ui + zod + TanStack Query
-│   ├── Dockerfile       ← 單階段 nginx:alpine（serve dist/）
+│   ├── Dockerfile       ← multi-stage：node:24.20.0-alpine build → nginx:alpine runtime
 │   ├── nginx.conf       ← / static + /api/ proxy to api:8000
 │   └── src/
 │       ├── pages/{ConfigBuilder,BatchRunner,JobDetail}.tsx
@@ -85,6 +101,9 @@ pytest                    # 單元測試（core / services / api / workers）
 | `tests/test_worker_pipeline.py` | end-to-end pipeline（含 idempotent skip、cancel flag、partial failure） |
 
 ### Frontend
+
+需要 Node 24（見 `frontend/.nvmrc`、`frontend/package.json` 的 `engines.node`；CI 也是
+釘同一個版本）。
 
 ```bash
 cd frontend

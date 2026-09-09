@@ -56,18 +56,25 @@ docker-compose.yml
 ### With Docker (recommended)
 
 ```bash
-bash scripts/up.sh        # builds frontend bundle locally, then `docker compose up -d`
+bash scripts/up.sh        # Docker-only: `docker compose up -d` builds the frontend image itself
 # UI:   http://localhost:5173
 # API:  http://localhost:8000
 ```
 
-The frontend image is a slim `nginx:alpine` that serves a pre-built `frontend/dist/`. `scripts/up.sh` rebuilds `dist/` whenever `src/` is newer (or `dist/` is missing), then brings up all four services.
+By default the frontend image is built by Docker via `frontend/Dockerfile`'s multi-stage
+build (Node build stage → `nginx:alpine` runtime) — no Node needed on the host.
+`scripts/up.sh --dev` (needs Node) layers `docker-compose.dev.yml` on top, which restores
+the old bind-mounted fast path: a host-run `npm run build` is picked up on the next browser
+refresh with no image rebuild. `scripts/up.sh --host-build` (needs Node) is the escape
+hatch for when the Node base image pull fails — see `docs/setup.md`.
 
 ### Restart matrix
 
 ```
-backend change   → docker compose restart api worker     # bind-mounted, no rebuild needed
-frontend change  → cd frontend && npm run build && docker compose up -d --force-recreate frontend
+backend change   → docker compose restart api worker                       # bind-mounted, no rebuild needed
+frontend change  → docker compose up -d --build frontend                   # default (no bind mount): rebuild the image
+                    # or, under --dev (docker-compose.dev.yml):
+                    # cd frontend && npm run build && docker compose up -d --force-recreate frontend
 schema change    → restart both (backend rebuild caches, frontend rebuild bundle)
 ```
 

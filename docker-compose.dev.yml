@@ -1,0 +1,18 @@
+# Opt-in dev overlay: restores the bind-mounted frontend fast path, where a
+# host-run `npm run build` is picked up on the next browser refresh with no
+# image rebuild. Requires Node on the host (see scripts/up.sh --dev).
+#
+# Targets frontend/Dockerfile's `runtime-dev` stage (nginx-only, no Node
+# build stage triggered) instead of `image: nginx:alpine`, because plain
+# compose override merging in this repo's supported Compose versions cannot
+# delete a `build:` key already set by docker-compose.yml — overriding with
+# `image:` alone would leave `build` in place and cause an unwanted rebuild.
+#
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+services:
+  frontend:
+    build:
+      target: runtime-dev
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro

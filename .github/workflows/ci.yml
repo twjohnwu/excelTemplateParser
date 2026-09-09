@@ -29,17 +29,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24.20.0"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run typecheck
       - run: npm test -- --run
       - run: npm run build
-      - uses: actions/upload-artifact@v4
-        with:
-          name: frontend-dist
-          path: frontend/dist
 
   docker-smoke:
     needs: [backend, frontend]
@@ -47,27 +43,13 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: frontend-dist
-          path: frontend/dist
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: docker compose up -d --build
-
-      - name: Wait for api healthcheck
-        run: |
-          for i in $(seq 1 60); do
-            status=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose ps -q api)" 2>/dev/null || echo "starting")
-            echo "api health: $status"
-            if [ "$status" = "healthy" ]; then
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "api did not become healthy in time"
-          exit 1
+      # Default Docker-only path: up.sh builds the frontend image itself
+      # (frontend/Dockerfile's Node build stage -> nginx runtime) and waits
+      # for every service's healthcheck before returning.
+      - run: bash scripts/up.sh
 
       - run: pip install httpx openpyxl
 

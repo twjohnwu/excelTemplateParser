@@ -39,12 +39,17 @@ Batch-convert many Excel files of the same format into another format. Author th
 
 ## Quick start
 
+Requires only Docker — no Node/npm needed.
+
 ```bash
 bash scripts/up.sh
 ```
 
 - UI: http://localhost:5173
 - API: http://localhost:8000
+
+The first run builds the frontend image (Docker downloads a Node base image
+and runs the production build inside it), so it's slower than later runs.
 
 Full setup, dev workflow, environment variables, and CI: [`docs/setup.md`](docs/setup.md).
 

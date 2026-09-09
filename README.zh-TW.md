@@ -39,12 +39,17 @@
 
 ## 一鍵啟動
 
+只需要 Docker，不需要 Node/npm。
+
 ```bash
 bash scripts/up.sh
 ```
 
 - UI: http://localhost:5173
 - API: http://localhost:8000
+
+第一次執行會建置 frontend image（Docker 會下載 Node base image 並在裡面跑 production
+build），所以比之後的執行慢。
 
 完整安裝、開發流程、環境變數與 CI：[`docs/setup.zh-TW.md`](docs/setup.zh-TW.md)。
 

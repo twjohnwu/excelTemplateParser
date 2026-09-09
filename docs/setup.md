@@ -2,18 +2,35 @@
 
 ## One-command launch
 
+Requires only Docker — no Node/npm needed.
+
 ```bash
 bash scripts/up.sh
 # → http://localhost:5173
 ```
 
-`scripts/up.sh` rebuilds `frontend/dist/` locally only if it's missing or stale, then runs `docker compose up -d` to start four services (redis / api / worker / frontend).
+By default, `scripts/up.sh` does no host build: `docker compose up -d` builds the frontend
+image itself via `frontend/Dockerfile`'s multi-stage build (a `node:24.20.0-alpine` build
+stage, then an `nginx:alpine` runtime stage), then starts all four services (redis / api /
+worker / frontend). The first run is slower because it has to build that image.
+
+Two flags need Node on the host:
+
+- `bash scripts/up.sh --dev` — restores the old bind-mounted fast path: `npm run build` on
+  the host, picked up on the next browser refresh with no image rebuild (layers
+  `docker-compose.dev.yml` on top of `docker-compose.yml`).
+- `bash scripts/up.sh --host-build` — escape hatch for when Docker Hub throttles the
+  `node:24.20.0-alpine` pull (TLS handshake timeouts have been observed here): builds the
+  frontend bundle on the host, builds a Node-free `nginx`-only image, then `docker cp`s the
+  host-built bundle into the running container.
 
 To refresh a specific service after changes:
 
 ```bash
-docker compose restart worker            # backend code is bind-mounted from ./backend
-cd frontend && npm run build && docker compose up -d --force-recreate frontend
+docker compose restart worker             # backend code is bind-mounted from ./backend
+docker compose up -d --build frontend     # default mode: rebuild the frontend image
+# or, under --dev (docker-compose.dev.yml):
+# cd frontend && npm run build && docker compose up -d --force-recreate frontend
 ```
 
 ---
@@ -46,7 +63,7 @@ excelTemplateParser/
 │       └── workers/{queue,tasks,run}.py
 ├── frontend/
 │   ├── package.json     ← React 18 + Vite + TS + shadcn/ui + zod + TanStack Query
-│   ├── Dockerfile       ← single-stage nginx:alpine (serves dist/)
+│   ├── Dockerfile       ← multi-stage: node:24.20.0-alpine build → nginx:alpine runtime
 │   ├── nginx.conf       ← static + /api/ proxy to api:8000
 │   └── src/
 │       ├── pages/{ConfigBuilder,BatchRunner,JobDetail}.tsx
@@ -86,6 +103,9 @@ Key unit test files:
 | `tests/test_worker_pipeline.py` | End-to-end pipeline (idempotent skip, cancel flag, partial failure) |
 
 ### Frontend
+
+Needs Node 24 (`frontend/.nvmrc`, `frontend/package.json`'s `engines.node`; CI pins the
+same version).
 
 ```bash
 cd frontend
