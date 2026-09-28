@@ -51,6 +51,16 @@ jobs:
       # for every service's healthcheck before returning.
       - run: bash scripts/up.sh
 
+      - name: Dump compose state on failure
+        if: failure()
+        run: |
+          docker compose ps
+          for s in frontend api worker redis; do
+            echo "== $s health =="
+            docker inspect --format '{{json .State.Health}}' "exceltemplateparser-$s-1" || true
+          done
+          docker compose logs --no-color --tail=200 frontend api
+
       - run: pip install httpx openpyxl
 
       - run: python scripts/smoke_test.py
