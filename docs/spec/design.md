@@ -392,7 +392,7 @@ class TemplateInvalid(CoreError): ...    # 範本檔損毀
 
 ## Concurrency & Memory
 
-- 單檔上限 50MB（`MAX_UPLOAD_MB`）
+- 單檔上限 200MB（`MAX_UPLOAD_MB`）
 - Worker 併發 4（`RQ_WORKERS`）
 - 大檔 `openpyxl.load_workbook(read_only=True)` 串流讀
 - 單 job 逾時 10 分鐘

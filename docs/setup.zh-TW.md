@@ -133,9 +133,9 @@ backend/.venv/bin/python scripts/resume_test.py     # 重啟續傳場景
 |---|---|---|
 | `REDIS_URL` | `redis://redis:6379/0` | Redis 連線 |
 | `DATA_DIR` | `./data` | 檔案系統根（configs / jobs / redis AOF）；可指 NAS / 外接硬碟 |
-| `MAX_UPLOAD_MB` | `50` | 單檔上傳上限 |
+| `MAX_UPLOAD_MB` | `200` | 單檔上傳上限 |
 | `RQ_WORKERS` | `4` | Worker 並行數 |
-| `JOB_TIMEOUT_MIN` | `10` | 單 subtask 逾時 |
+| `JOB_TIMEOUT_MIN` | `30` | 單 subtask 逾時 |
 | `DOWNLOAD_GRACE_MINUTES` | `60` | ZIP 下載 grace period |
 | `JOB_RETENTION_HOURS` | `24` | 未下載 job 保留時間 |
 | `RESUME_SCAN_SECONDS` | `120` | scan_and_resume 定期掃描間隔（API process）；worker crash 後回收卡住的工作 |

@@ -78,7 +78,7 @@ The system SHALL bound resource usage to prevent OOM under batch workloads.
 
 #### Scenario: Upload size limit
 
-- **WHEN** an uploaded file exceeds `MAX_UPLOAD_MB` (default 50)
+- **WHEN** an uploaded file exceeds `MAX_UPLOAD_MB` (default 200)
 - **THEN** the API SHALL return HTTP 413 before the file is fully buffered
 
 ### Requirement: Internationalization

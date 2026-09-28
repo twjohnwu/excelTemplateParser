@@ -19,8 +19,8 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       DATA_DIR: /data
-      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-50}
-      JOB_TIMEOUT_MIN: ${JOB_TIMEOUT_MIN:-10}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-200}
+      JOB_TIMEOUT_MIN: ${JOB_TIMEOUT_MIN:-30}
       RESUME_SCAN_SECONDS: ${RESUME_SCAN_SECONDS:-120}
     volumes:
       - ./backend:/app
@@ -45,7 +45,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       DATA_DIR: /data
       RQ_WORKERS: ${RQ_WORKERS:-4}
-      JOB_TIMEOUT_MIN: ${JOB_TIMEOUT_MIN:-10}
+      JOB_TIMEOUT_MIN: ${JOB_TIMEOUT_MIN:-30}
     volumes:
       - ./backend:/app
       - ${DATA_DIR:-./data}:/data

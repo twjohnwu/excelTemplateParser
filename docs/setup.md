@@ -135,9 +135,9 @@ Set in `.env` or `docker-compose.yml`.
 |---|---|---|
 | `REDIS_URL` | `redis://redis:6379/0` | Redis connection |
 | `DATA_DIR` | `./data` | Filesystem root for configs / jobs / redis AOF; can point at NAS or external drive |
-| `MAX_UPLOAD_MB` | `50` | Per-file upload ceiling |
+| `MAX_UPLOAD_MB` | `200` | Per-file upload ceiling |
 | `RQ_WORKERS` | `4` | Worker concurrency |
-| `JOB_TIMEOUT_MIN` | `10` | Per-subtask timeout |
+| `JOB_TIMEOUT_MIN` | `30` | Per-subtask timeout |
 | `DOWNLOAD_GRACE_MINUTES` | `60` | ZIP re-download grace window |
 | `JOB_RETENTION_HOURS` | `24` | Sweep undownloaded jobs after N hours |
 | `RESUME_SCAN_SECONDS` | `120` | Periodic scan_and_resume interval (API process); reclaims stale work after a worker crash |

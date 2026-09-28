@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Raise default `MAX_UPLOAD_MB` 50 → 200 and `JOB_TIMEOUT_MIN` 10 → 30 so a 1M-row primary with three lookups (~78 MB, ~7 min) runs without overrides.
+
 ## [0.2.0] - 2026-09-04
 
 Crash-safety and operability release. Every persistent write is now atomic, recovery reconciles

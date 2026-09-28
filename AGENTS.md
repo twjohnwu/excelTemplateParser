@@ -129,9 +129,9 @@ npm run e2e   # Playwright, needs the docker stack up
 |---|---|---|
 | `REDIS_URL` | `redis://redis:6379/0` | Redis connection |
 | `DATA_DIR` | `./data` | Filesystem root for configs and jobs |
-| `MAX_UPLOAD_MB` | `50` | Per-file upload limit |
+| `MAX_UPLOAD_MB` | `200` | Per-file upload limit |
 | `RQ_WORKERS` | `4` | Worker concurrency |
-| `JOB_TIMEOUT_MIN` | `10` | Per-subtask timeout |
+| `JOB_TIMEOUT_MIN` | `30` | Per-subtask timeout |
 | `DOWNLOAD_GRACE_MINUTES` | `60` | ZIP re-download grace window |
 | `JOB_RETENTION_HOURS` | `24` | Sweep undownloaded jobs after N hours |
 | `LOG_LEVEL` | `INFO` | structlog level |
