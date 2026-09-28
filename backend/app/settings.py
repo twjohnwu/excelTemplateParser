@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -13,6 +14,11 @@ class Settings(BaseSettings):
 
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     data_dir: Path = Field(default=Path("./data"), alias="DATA_DIR")
+
+    # xlsx reader backend used by app.core.parser. `openpyxl` keeps exact
+    # legacy per-cell semantics (error cells, whitespace-only strings,
+    # dimension-only trailing columns) that `calamine` cannot reproduce.
+    xlsx_reader: Literal["calamine", "openpyxl"] = Field(default="calamine", alias="XLSX_READER")
 
     max_upload_mb: int = Field(default=200, alias="MAX_UPLOAD_MB")
     rq_workers: int = Field(default=4, alias="RQ_WORKERS")

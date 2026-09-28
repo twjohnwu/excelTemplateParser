@@ -140,6 +140,7 @@ backend/.venv/bin/python scripts/resume_test.py     # 重啟續傳場景
 | `JOB_RETENTION_HOURS` | `24` | 未下載 job 保留時間 |
 | `RESUME_SCAN_SECONDS` | `120` | scan_and_resume 定期掃描間隔（API process）；worker crash 後回收卡住的工作 |
 | `LOG_LEVEL` | `INFO` | structlog level |
+| `XLSX_READER` | `calamine` | xlsx 讀取後端；`openpyxl` 保留舊版逐格語意（錯誤儲存格、純空白字串、只宣告未寫入的尾端空欄） |
 
 ---
 

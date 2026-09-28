@@ -142,6 +142,7 @@ Set in `.env` or `docker-compose.yml`.
 | `JOB_RETENTION_HOURS` | `24` | Sweep undownloaded jobs after N hours |
 | `RESUME_SCAN_SECONDS` | `120` | Periodic scan_and_resume interval (API process); reclaims stale work after a worker crash |
 | `LOG_LEVEL` | `INFO` | structlog level |
+| `XLSX_READER` | `calamine` | xlsx reader backend; `openpyxl` keeps exact legacy cell semantics (error cells, whitespace-only strings, dimension-only trailing columns) |
 
 ---
 

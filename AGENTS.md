@@ -135,3 +135,4 @@ npm run e2e   # Playwright, needs the docker stack up
 | `DOWNLOAD_GRACE_MINUTES` | `60` | ZIP re-download grace window |
 | `JOB_RETENTION_HOURS` | `24` | Sweep undownloaded jobs after N hours |
 | `LOG_LEVEL` | `INFO` | structlog level |
+| `XLSX_READER` | `calamine` | xlsx reader backend; `openpyxl` keeps exact legacy cell semantics (error cells, whitespace-only strings, dimension-only trailing columns) |

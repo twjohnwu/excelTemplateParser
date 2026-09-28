@@ -22,6 +22,7 @@ services:
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-200}
       JOB_TIMEOUT_MIN: ${JOB_TIMEOUT_MIN:-30}
       RESUME_SCAN_SECONDS: ${RESUME_SCAN_SECONDS:-120}
+      XLSX_READER: ${XLSX_READER:-calamine}
     volumes:
       - ./backend:/app
       - ${DATA_DIR:-./data}:/data
@@ -46,6 +47,7 @@ services:
       DATA_DIR: /data
       RQ_WORKERS: ${RQ_WORKERS:-4}
       JOB_TIMEOUT_MIN: ${JOB_TIMEOUT_MIN:-30}
+      XLSX_READER: ${XLSX_READER:-calamine}
     volumes:
       - ./backend:/app
       - ${DATA_DIR:-./data}:/data

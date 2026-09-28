@@ -1,9 +1,28 @@
 """Excel parsing: workbook → DataFrame + header info.
 
-`iter_chunks` streams a sheet in bounded-size batches via openpyxl read_only
-mode, so a large primary file never fully materializes in memory. `parse` is a
-convenience wrapper that concatenates those chunks into one DataFrame — fine for
-small lookup tables, but the worker streams the primary through `iter_chunks`.
+Two interchangeable backends live behind this module: `_reader_calamine`
+(default, via `python-calamine` — a Rust reader, roughly 2x faster than
+openpyxl's read_only iteration on large sheets) and `_reader_openpyxl` (the
+pre-calamine implementation, kept verbatim as a fallback). Pick one with
+`XLSX_READER=calamine|openpyxl` (see `app.settings.Settings.xlsx_reader`);
+the setting is read fresh on every call via `_backend()`, not cached at
+import time, so tests can monkeypatch it per case.
+
+calamine has three known, unfixable divergences from the old openpyxl
+reader — see `_reader_calamine._normalize_cell` and the module docstring
+there for the mechanics: error cells (`#DIV/0!` etc.) come back empty
+instead of the error text, whitespace-only string cells come back empty
+instead of the whitespace, and trailing columns the xlsx `dimension` element
+declares but never actually writes a cell into are invisible (calamine sizes
+`ws.width` off written cells, not the declared dimension). `openpyxl` keeps
+the old exact per-cell semantics for anyone who needs them.
+
+`iter_chunks` streams a sheet in bounded-size batches so a large primary file
+never fully materializes as a `pd.DataFrame`. `parse` is a convenience
+wrapper that concatenates those chunks into one DataFrame — fine for small
+lookup tables, but the worker streams the primary through `iter_chunks`.
+Writing (writer.py) stays on openpyxl regardless of `XLSX_READER` — calamine
+is read-only.
 
 Raises TemplateInvalid for any structural problem (corrupt file, missing
 sheet, header row out of range).
@@ -16,12 +35,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
-from zipfile import BadZipFile
 
-from openpyxl import load_workbook
-from openpyxl.utils.exceptions import InvalidFileException
-
-from .exceptions import TemplateInvalid
+from ..settings import get_settings
 
 DEFAULT_CHUNK_SIZE = 10000
 
@@ -34,20 +49,27 @@ class ParsedSheet:
     df: pd.DataFrame
 
 
+def _backend():
+    """Select the reader backend named by `settings.xlsx_reader`.
+
+    Imported lazily (not at module top level) so `parser.py` never depends
+    on either backend module at its own import time — that keeps this a
+    one-way dependency (backends import shared helpers from here) instead
+    of a circular one, and it means the setting is genuinely read at call
+    time: a test can `monkeypatch.setenv("XLSX_READER", ...)` between calls
+    and see it take effect immediately.
+    """
+    reader = get_settings().xlsx_reader
+    if reader == "openpyxl":
+        from . import _reader_openpyxl as backend
+    else:
+        from . import _reader_calamine as backend
+    return backend
+
+
 def list_sheets(path: str | Path) -> list[str]:
     """Return sheet names in the workbook (cheap; no row scan)."""
-    try:
-        wb = load_workbook(filename=str(path), read_only=True, data_only=True)
-    except (InvalidFileException, FileNotFoundError, OSError, KeyError, BadZipFile) as exc:
-        raise TemplateInvalid(
-            user_message="範本檔損毀或非 xlsx 格式",
-            tech_detail=f"{type(exc).__name__}: {exc}",
-            path=str(path),
-        ) from exc
-    try:
-        return list(wb.sheetnames)
-    finally:
-        wb.close()
+    return _backend().list_sheets(path)
 
 
 def preview_rows(path: str | Path, sheet: str, *, start: int = 1, count: int = 30) -> list[list[object]]:
@@ -55,33 +77,7 @@ def preview_rows(path: str | Path, sheet: str, *, start: int = 1, count: int = 3
 
     Used by the templates parse endpoint to power the sheet/header_row picker.
     """
-    try:
-        wb = load_workbook(filename=str(path), read_only=True, data_only=True)
-    except (InvalidFileException, FileNotFoundError, OSError, BadZipFile) as exc:
-        raise TemplateInvalid(
-            user_message="範本檔損毀或非 xlsx 格式",
-            tech_detail=f"{type(exc).__name__}: {exc}",
-            path=str(path),
-        ) from exc
-
-    try:
-        if sheet not in wb.sheetnames:
-            raise TemplateInvalid(
-                user_message=f"工作表「{sheet}」不存在",
-                tech_detail=f"available sheets: {wb.sheetnames}",
-                sheet=sheet,
-            )
-        ws = wb[sheet]
-        out: list[list[object]] = []
-        for i, row in enumerate(ws.iter_rows(values_only=True), start=1):
-            if i < start:
-                continue
-            out.append(list(row))
-            if len(out) >= count:
-                break
-        return out
-    finally:
-        wb.close()
+    return _backend().preview_rows(path, sheet, start=start, count=count)
 
 
 def iter_chunks(
@@ -96,66 +92,10 @@ def iter_chunks(
     sheet has headers but no data rows) so callers can rely on the column layout.
 
     NOTE: this is a generator — argument/structural validation happens lazily on the
-    first `next()`, matching how the worker consumes it.
+    first `next()`, matching how the worker consumes it. The active backend is also
+    resolved lazily inside the generator body, at that same first `next()`.
     """
-    if chunk_size < 1:
-        chunk_size = DEFAULT_CHUNK_SIZE
-    if header_row < 1:
-        raise TemplateInvalid(
-            user_message="標頭列號必須 ≥ 1",
-            tech_detail=f"header_row={header_row}",
-        )
-
-    try:
-        wb = load_workbook(filename=str(path), read_only=True, data_only=True)
-    except (InvalidFileException, FileNotFoundError, OSError, BadZipFile) as exc:
-        raise TemplateInvalid(
-            user_message="範本檔損毀或非 xlsx 格式",
-            tech_detail=f"{type(exc).__name__}: {exc}",
-            path=str(path),
-        ) from exc
-
-    try:
-        if sheet not in wb.sheetnames:
-            raise TemplateInvalid(
-                user_message=f"工作表「{sheet}」不存在",
-                tech_detail=f"available sheets: {wb.sheetnames}",
-                sheet=sheet,
-            )
-
-        ws = wb[sheet]
-        headers: list[str] | None = None
-        buffer: list[list[object]] = []
-        emitted = False
-        for i, row in enumerate(ws.iter_rows(values_only=True), start=1):
-            if i < header_row:
-                continue
-            if i == header_row:
-                headers = [_normalize_header(cell) for cell in row]
-                continue
-            if _row_is_empty(row):
-                continue
-            buffer.append(list(row))
-            if len(buffer) >= chunk_size:
-                yield _make_sheet(headers, buffer)
-                emitted = True
-                buffer = []
-
-        if headers is None:
-            raise TemplateInvalid(
-                user_message=f"工作表「{sheet}」沒有第 {header_row} 列",
-                tech_detail="header_row beyond last row in sheet",
-                sheet=sheet,
-                header_row=header_row,
-            )
-
-        if buffer:
-            yield _make_sheet(headers, buffer)
-            emitted = True
-        if not emitted:
-            yield _make_sheet(headers, [])
-    finally:
-        wb.close()
+    yield from _backend().iter_chunks(path, sheet, header_row, chunk_size=chunk_size)
 
 
 def parse(path: str | Path, sheet: str, header_row: int) -> ParsedSheet:
@@ -175,7 +115,11 @@ def parse(path: str | Path, sheet: str, header_row: int) -> ParsedSheet:
 
 
 def _make_sheet(headers: list[str], data_rows: list[list[object]]) -> ParsedSheet:
-    """Pad/trim each row to the header width and build a DataFrame for one chunk."""
+    """Pad/trim each row to the header width and build a DataFrame for one chunk.
+
+    Shared by both backends — backend-agnostic, so it lives here rather than
+    being duplicated in each `_reader_*` module.
+    """
     width = len(headers)
     normalized = [list(row[:width]) + [None] * max(0, width - len(row)) for row in data_rows]
     return ParsedSheet(headers=headers, df=pd.DataFrame(normalized, columns=headers))

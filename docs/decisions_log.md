@@ -879,3 +879,21 @@ if (json === EMPTY_PERSISTABLE_JSON) return;
 **學到什麼**：「串流安全」不是看資料量、是看 join 語意——只要一種 join type 的輸出筆數不是被 primary 的列數所界定（bounded），分片執行就會破壞正確性，不管分片大小怎麼調都一樣。串流式 outer join（例如記錄已配對過的 lookup key、在最後一個 chunk 補吐剩餘未配對列）是可行的優化方向，但這次先選正確性優先、退回全載——deferred，未實作。
 
 ---
+
+## 第七部分：xlsx 讀取後端可切換——1 條（2026-09-28）
+
+百萬列 benchmark 追效能時把 openpyxl 讀取換成 python-calamine，等價驗證抓到三個底層行為差異，決定雙後端並存。
+
+---
+
+## 1. calamine 換底層 reader，逐格語意不可完全等價
+
+**最初想法**：直接把 `app/core/parser.py` 的 openpyxl 換成 `python-calamine`（2.2 倍速度），equivalence 測試對過範例檔跟型別矩陣就上。
+
+**為什麼錯**：三個逐格差異無法從 calamine 端修正——error cell（`#DIV/0!`）calamine 回傳空字串、openpyxl 回傳錯誤文字；純空白字串儲存格 calamine 收斂成空、openpyxl 保留原始空白；xlsx `dimension` 宣告過但從未真正寫入值的尾端欄，openpyxl 靠 `dimension` 補回、calamine 的 `ws.width` 只看實際寫入的儲存格所以整欄消失。這些都不是 bug，是兩個函式庫對同一份 xlsx 結構解讀方式本質不同，equivalence 測試套件本身有限，只驗證了「常見情境」沒驗證這三個角落。
+
+**現在做法**：`app/core/parser.py` 拆成共用層＋兩個後端模組（`_reader_calamine.py`／`_reader_openpyxl.py`，後者是舊實作逐字搬移）；`settings.xlsx_reader`（`XLSX_READER`，預設 `calamine`）在呼叫當下讀取、非 import 期快取，讓測試能逐案 monkeypatch 切換。既有 equivalence 測試改成兩個後端都跑一遍（`openpyxl` 後端等於凍結參考實作，等於順便證明搬移是逐字的），另加一條測試把上述三個差異釘死成「已知、預期」而非回歸。
+
+**學到什麼**：換底層 reader 的等價驗證，光拿真實 example 檔案跑過還不夠——要用舊實作當 oracle，針對「這個函式庫的資料模型跟舊實作有什麼結構性不同」逐格反推可能的分歧點（error cell、空白 vs 空、宣告 vs 實際寫入），再專門造一份組合起來的測試workbook 去釘住。純粹跑既有測試矩陣，測不出「兩邊都沒想到要測」的角落。
+
+---
