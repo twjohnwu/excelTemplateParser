@@ -7,9 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Setup Wizard at `/wizard` — a five-step guided flow (Template → Sources → Joins → Mappings → Save) that shares `configForm.ts` (`toConfig`, draft read/write) with the three-pane workbench; `/` now lands on it and `/configs/wizard` redirects to it. The draft banner shows a summary before Restore and each missing file shows a re-upload hint afterwards.
+- `XLSX_READER` setting: `calamine` (default, python-calamine) or `openpyxl` (legacy cell semantics). See docs/setup.md.
+- `benchmarks/01_product_pricing_1m/`: 1M-row generator and an in-process runner for load testing.
+
 ### Changed
 
-- Raise default `MAX_UPLOAD_MB` 50 → 200 and `JOB_TIMEOUT_MIN` 10 → 30 so a 1M-row primary with three lookups (~78 MB, ~7 min) runs without overrides.
+- Read xlsx with python-calamine and build write_only rows per chunk instead of `iterrows`: the 1M-row × 3-lookup benchmark drops from 7 min 09 s to 1 min 53 s (2019 Intel i9). Peak RSS rises from 1.4 GB to ~2 GB because calamine loads the sheet in Rust.
+- Raise default `MAX_UPLOAD_MB` 50 → 200 and `JOB_TIMEOUT_MIN` 10 → 30 so a 1M-row primary with three lookups (~78 MB) runs without overrides.
+- README walkthrough now leads with the wizard; the workbench walkthrough moved to docs/walkthrough-workbench.md.
+
+### Fixed
+
+- Streaming the primary with an `outer`/`right` join re-ran the merge per 10k-row chunk, re-emitting every unmatched lookup row with a blank key once per chunk (a 1M-row run would have produced ~198M rows). Such configs now take the full-load path (`_primary_is_join_base`).
 
 ## [0.2.0] - 2026-09-04
 

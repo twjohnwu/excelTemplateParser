@@ -49,7 +49,7 @@ excelTemplateParser/
 │   ├── resume_test.py   ← §8.9 mid-batch worker restart
 │   └── VERIFICATION_REPORT.md
 ├── backend/
-│   ├── pyproject.toml   ← Python 3.12+, FastAPI, RQ, openpyxl, structlog, APScheduler
+│   ├── pyproject.toml   ← Python 3.12+, FastAPI, RQ, python-calamine, openpyxl, structlog, APScheduler
 │   ├── Dockerfile
 │   └── app/
 │       ├── main.py              ← FastAPI entry + lifespan

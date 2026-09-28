@@ -34,6 +34,7 @@
 - **邊界式錯誤處理**——每個錯誤回應都附 `request_id`；`docker compose logs api | grep <id>` 直接找到完整 traceback。使用者訊息與工程師 traceback 從不混在一起。
 - **i18n + 黑暗模式**——繁中／英文、淺色／黑暗，皆持久化於 localStorage、reload 不閃白。
 - **Autosave + 草稿還原**——ConfigBuilder 自動存草稿到 localStorage，再次進入時跳出明示的「還原 / 捨棄」選擇；localStorage 只被使用者明示操作改動，autosave 不自作主張清理。
+- **兩種建立設定的方式**——預設首頁 `/wizard` 的設定精靈適合第一次上手，「專案設定」的三欄式工作台適合想一眼看到全貌的人；兩者產出同一份 JSON。
 
 ---
 

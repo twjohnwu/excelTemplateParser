@@ -4,12 +4,12 @@ ERP Excel batch conversion tool. Single-machine intranet deployment via `docker 
 
 ## Architecture
 
-- **Backend** (`backend/`): Python 3.12 + FastAPI + openpyxl + pandas + RQ
+- **Backend** (`backend/`): Python 3.12 + FastAPI + python-calamine/openpyxl (read, `XLSX_READER`) + openpyxl (write) + pandas + RQ
 - **Frontend** (`frontend/`): React 18 + Vite + TypeScript + shadcn/ui + zod + TanStack Query
 - **Storage**: Redis (AOF persistence) + filesystem (`/data/` as source of truth)
 - **Worker**: RQ background worker; one subtask per primary source file
 
-See `docs/spec/` for full design docs (proposal / design / tasks / spec). For known pitfalls discovered post-launch (schema null serialization, broadcast semantics, source_cell pipeline forking, draft autosave races) and the 2026-07 UX overhaul decisions (wizard rejection, stateless preview, layout-height lessons), scan `docs/decisions_log.md` Parts 2–3 before adding similar features.
+See `docs/spec/` for full design docs (proposal / design / tasks / spec). For known pitfalls discovered post-launch (schema null serialization, broadcast semantics, source_cell pipeline forking, draft autosave races) and the 2026-07 UX overhaul decisions (wizard rejection, stateless preview, layout-height lessons), scan `docs/decisions_log.md` Parts 2–3 before adding similar features; Part 5 records why the wizard was later added as a second surface, Parts 6–7 the streaming-join fix and the calamine/openpyxl reader switch.
 
 ## Layout
 
@@ -29,11 +29,11 @@ backend/
   Dockerfile
 frontend/
   src/
-    pages/             # ConfigBuilder, BatchRunner, JobDetail
-    features/          # config-builder/{SourcesTree,JoinsEditor,MappingsList,MappingRow,ChecklistRail,PreviewDialog}, batch-runner/{NewBatchForm,JobsList}
+    pages/             # WizardPage (/wizard, default), ConfigBuilder, BatchRunner, JobDetail
+    features/          # config-builder/{SourcesTree,JoinsEditor,MappingsList,MappingRow,ChecklistRail,PreviewDialog}, batch-runner/{NewBatchForm,JobsList}, config-wizard/{WizardStepShell,WizardSummary,wizardCopy}
     components/        # TopMenuBar, JobsPanel, FileDropzone, SheetHeaderPicker, ConditionChip, ui/*
     hooks/             # useConfigs, useJobSnapshot, useDebounce, usePreviewConfig
-    lib/               # schemas.ts (zod ConfigSchema — mirror of backend), api.ts, recentJobs.ts, configHelpers/previewHelpers/issueHelpers.ts, i18nGuard.test.ts
+    lib/               # schemas.ts (zod ConfigSchema — mirror of backend), api.ts, configForm.ts (shared toConfig / draft read-write for both surfaces), recentJobs.ts, configHelpers/previewHelpers/issueHelpers.ts, i18nGuard.test.ts
     i18n/              # zh-TW.json, en.json, index.ts
     theme/             # ThemeProvider.tsx, ThemeProvider.test.tsx
   Dockerfile

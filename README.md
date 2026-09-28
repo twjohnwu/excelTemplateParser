@@ -34,6 +34,7 @@ Batch-convert many Excel files of the same format into another format. Author th
 - **Boundary-only error handling** — every error response carries a `request_id`; `docker compose logs api | grep <id>` finds the full traceback. User-facing messages and engineer-facing tracebacks never mix.
 - **i18n + dark mode** — zh-TW / English, light / dark theme; both persisted in localStorage with no flash on reload.
 - **Autosave + draft restore** — ConfigBuilder autosaves to localStorage and offers an explicit Restore / Discard prompt on revisit; the storage is only mutated by explicit user actions, never auto-purged.
+- **Two ways to build a config** — the Setup Wizard at `/wizard` (default) for a guided first run, or the three-pane workbench under Project Settings when you want everything on one screen; both produce the same JSON.
 
 ---
 
