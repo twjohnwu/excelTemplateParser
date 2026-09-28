@@ -48,10 +48,12 @@ Silicon 單核通常快 2–3 倍，數字視為保守上限。
 
 | 模式 | 列數 | 耗時 | CPU | 峰值 RSS | 輸出 |
 |---|---|---|---|---|---|
-| `preserve_styles=false`（write_only） | 1,000,000 × 3 lookups | 7 分 09 秒 | 單核 100% | 1.39 GB | 36 MB，1,000,000 列，A/B/C 填值 600k/700k/700k |
+| 修正 outer join 後（openpyxl 讀） | 1,000,000 × 3 lookups | 7 分 09 秒 | 單核 100% | 1.39 GB | 36 MB，1,000,000 列，A/B/C 填值 600k/700k/700k |
+| ＋ python-calamine 讀取（`XLSX_READER=calamine`，預設） | 同上 | 3 分 24 秒 | 單核 100% | 1.87 GB | 同上，逐格驗證相同 |
+| ＋ writer 向量化（`_chunk_rows` 取代 `iterrows`） | 同上 | 1 分 53 秒 | 單核 100% | 2.05 GB | 同上，逐格驗證相同 |
 
 修正前（`_primary_is_join_base` 未排除 outer join，逐 chunk 執行 outer join）跑了
 1 小時 46 分仍未完成，且輸出會膨脹到約 1.98 億列——見 `docs/decisions_log.md`
-第六部分。修正後走全載路徑，剖析顯示剩餘成本約 55% 在 openpyxl 讀取、
-30% 在 writer 的 `iterrows` 逐格取值、15% 在 openpyxl 寫入；pandas merge 本身
-不到 1%。
+第六部分。三步合計 429 秒 → 113 秒（3.8 倍）。剩餘成本主要是 openpyxl `write_only` 的
+XML 序列化與 pandas 全載 join；pandas merge 本身不到 1%。記憶體上升是因為
+calamine 在 Rust 端整張載入，`iter_chunks` 只有 DataFrame 建構是分批的。
