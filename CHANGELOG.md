@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-28
+
+Setup Wizard and large-file release. A guided five-step wizard becomes the default page, xlsx
+reading moves to python-calamine with an openpyxl switch, a streaming-join correctness bug is
+fixed, and the 1M-row benchmark drops from 7 minutes to under 2.
+
 ### Added
 
 - Setup Wizard at `/wizard` — a five-step guided flow (Template → Sources → Joins → Mappings → Save) that shares `configForm.ts` (`toConfig`, draft read/write) with the three-pane workbench; `/` now lands on it and `/configs/wizard` redirects to it. The draft banner shows a summary before Restore and each missing file shows a re-upload hint afterwards.
@@ -135,5 +141,7 @@ Initial public release. Single-machine Docker deployment, no login required.
   case study, plus the full OpenSpec proposal / design / tasks / spec
   under `docs/`.
 
-[Unreleased]: https://github.com/twjohnwu/excelTemplateParser/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/twjohnwu/excelTemplateParser/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/twjohnwu/excelTemplateParser/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/twjohnwu/excelTemplateParser/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/twjohnwu/excelTemplateParser/releases/tag/v0.1.0
