@@ -91,15 +91,28 @@ def df_needed_aliases(config: ConfigSchema) -> set[str]:
     return needed
 
 
+_UNBOUNDED_RIGHT_JOIN_TYPES = {"outer", "right"}
+
+
 def _primary_is_join_base(config: ConfigSchema) -> bool:
-    """Streaming requires the primary to be the join root (joiner uses the first
-    rule's left alias as the merge base). With no joins the primary is trivially
-    the base. Otherwise the worker falls back to a full load to preserve
-    semantics, and so must preview.
+    """Whether the primary can be streamed in chunks and still produce correct
+    join output.
+
+    Two conditions must both hold: the primary is the join root (joiner uses
+    the first rule's left alias as the merge base), AND no join type in the
+    chain can emit unmatched right-side rows (`outer`, `right`). Streaming
+    re-runs `joiner.join` once per chunk against the whole lookup, so an
+    `outer`/`right` join would emit every unmatched lookup row once PER CHUNK
+    instead of once overall (see `decisions_log.md`). With no joins the
+    primary is trivially the base. Otherwise (or when this check fails) the
+    worker falls back to a full load to preserve semantics, and so must
+    preview.
     """
     if not config.joins:
         return True
-    return config.joins[0].left.split(".", 1)[0] == config.primary_alias
+    if config.joins[0].left.split(".", 1)[0] != config.primary_alias:
+        return False
+    return not any(j.type in _UNBOUNDED_RIGHT_JOIN_TYPES for j in config.joins)
 
 
 def preview_map(

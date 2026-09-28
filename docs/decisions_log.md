@@ -861,3 +861,21 @@ if (json === EMPTY_PERSISTABLE_JSON) return;
 **學到什麼**：**準則導向的審查檢查的是你想到要問的問題；開放式審查找到的是你沒想到的問題。** 給第一種審查多加幾個角度，並不會讓它變成第二種——這次三個角度全部共享同一個盲點，正是因為它們都是從同一份寫下來的準則出發。另外值得明講：**從有缺陷的 spec 寫出來的測試，保護的不是程式碼，而是把缺陷鎖死**；審查發現缺陷時，要先查是不是已經有一條測試在斷言這個缺陷，因為一個全綠的測試套件正是讓人不再細看的原因。還有：**一個守門判斷如果註解寫明了它防止什麼，它就是承載著某個安全性質的**——只因為 spec 的某句話暗示它該被拿掉，就把它刪掉，是已上線的安全性質被弄丟的方式。
 
 ---
+
+## 第六部分：Join Streaming 正確性——1 條（2026-09-28）
+
+主檔案 50k 列、3 個 outer lookup、chunk 10k 時實測輸出 450,000 列而非 50,000 列，追出串流分片與 outer join 語意衝突。
+
+---
+
+## 1. Outer/Right join 不能逐 chunk 執行
+
+**最初想法**：`_primary_is_join_base`（`app/core/preview.py`）只檢查 primary 是不是 join 鏈的第一個 left alias，符合就走串流：primary 分批讀、每批各自呼叫 `joiner.join` 併回 lookup。
+
+**為什麼錯**：`outer`／`right` join 會吐出「lookup 裡沒被 primary 配對到」的列。串流模式下，每個 chunk 都是拿「這批 primary」去對「整份 lookup」跑一次 merge，於是同一批未配對的 lookup 列會在**每個 chunk 都各吐一次**——chunk 數愈多，重複倍數愈高（實測 3 個 outer lookup、5 個 chunk 時，450,000 / 50,000 = 9，接近 chunk 數的平方級放大）。這不是邊界案例，只要 join type 允許輸出未配對的右側列、且主檔案夠大需要分批，就一定發生。
+
+**現在做法**：`_primary_is_join_base` 除了原本的「primary 是不是 join 鏈起點」，再加一條：join 鏈裡只要有一個 join type 屬於「可能吐出未配對右側列」（目前 schema 允許的 `outer`／`right`），就回傳 False，回到既有的全載 fallback（`tasks.py:237`／`preview.py:173`）。這個 gate 被 worker 與 preview 共用，改一處兩邊都套用，維持 `preview.py` 檔頭註解說的「不能讓兩條邏輯各自漂移」的不變量。
+
+**學到什麼**：「串流安全」不是看資料量、是看 join 語意——只要一種 join type 的輸出筆數不是被 primary 的列數所界定（bounded），分片執行就會破壞正確性，不管分片大小怎麼調都一樣。串流式 outer join（例如記錄已配對過的 lookup key、在最後一個 chunk 補吐剩餘未配對列）是可行的優化方向，但這次先選正確性優先、退回全載——deferred，未實作。
+
+---
