@@ -2,13 +2,13 @@
 status: approved
 approved_date: 2026-09-10
 approved_fingerprint: 89ca6252e0d3b99eacb16ac30d67a242ac21feb385c1c3869dfa9f0cd63f5655
-design_ux_fingerprint: 2f3fb602fbc27b7b9c95fce1f391f20672ce24684b9f844dd735682c691fb1e6
+design_ux_fingerprint: 92f0713a866f219019444b642df531d24a15f8e2c7f417977890dcb9edbc65b2
 language: zh-TW
 ---
 
 # Spec: create-project-wizard
 
-新增一個全頁精靈 `/configs/wizard`，作為既有三欄式工作台（`ConfigBuilder`，
+新增一個全頁精靈 `/wizard`（同時是 `/` 的預設落點；舊路徑 `/configs/wizard` 導向它），作為既有三欄式工作台（`ConfigBuilder`，
 `/configs/new`）之外的第二個建立設定入口，服務第一次使用、無背景知識的使用者。
 兩個入口最終都產出同一份設定 JSON。
 
@@ -22,7 +22,7 @@ language: zh-TW
 ```mermaid
 flowchart TD
   subgraph Browser[瀏覽器]
-    Wizard["WizardPage (/configs/wizard)"]
+    Wizard["WizardPage (/wizard)"]
     Builder["ConfigBuilder (/configs/new)"]
     Draft[("localStorage\netp.configDraft.v1")]
   end
@@ -54,7 +54,7 @@ flowchart TD
 | 固定值（literal） | mapping 三種填值模式之一：不管來源長怎樣，這一欄一律填這個值 | 常數、預設值（`default` 在 schema 中另有精確含義，不可混用） | `mappings` | `save` |
 | 固定儲存格（source_cell） | mapping 三種填值模式之一：不是逐列取值，而是直接指定來源檔某一格（例如 B2） | 固定位置、絕對位置 | `mappings` | `save` |
 | 輸出欄位（output column） | `target_template.columns` 陣列中的一個元素；由 mapping 的 `target` 與範本標題列共同決定，見 `toConfig()`（`frontend/src/pages/ConfigBuilder.tsx:111-114`） | 目標欄位（易與「目標範本」混淆）——本規格全文統一用「輸出欄位」指稱這個概念，UI 上目前沒有獨立畫面承載這個名詞，靠 `mappings` 步驟的說明文案帶出 | `mappings` | `target` |
-| 精靈（wizard） | 本次新增的全頁線性引導介面，路由 `/configs/wizard`，服務無背景知識的新手 | 精靈模式、引導模式（避免與既有 `ConfigBuilder` 內任何未來功能同名） | N/A | N/A |
+| 精靈（wizard） | 本次新增的全頁線性引導介面，路由 `/wizard`（舊 `/configs/wizard` 導向），服務無背景知識的新手 | 精靈模式、引導模式（避免與既有 `ConfigBuilder` 內任何未來功能同名） | N/A | N/A |
 | 工作台（workbench） | 既有三欄式介面 `ConfigBuilder`，路由 `/configs`、`/configs/new`，服務業務/顧問；本次變更不改動其版面 | 精靈、wizard（兩者是不同表層，命名須明確區分） | N/A | N/A |
 
 > 「首次定義步驟」「亦顯示（echoed）」兩欄逐字取自 `design-ux.md` 的 Glossary
@@ -115,11 +115,13 @@ previewHelpers.ts:19`：`target → sources → joins → mappings → save`）�
 - **WHEN** 使用者尚未觸發任何存檔請求
 - **THEN** 「儲存並下載」按鈕與所有步驟導覽項目 SHALL NOT 帶有 `disabled`
   屬性——這條斷言只涵蓋步驟導覽控制項與「儲存並下載」，不涵蓋預覽按鈕（預覽
-  按鈕依 REQ-02 的完整性判斷例外，不在本場景檢查範圍內）
+  按鈕依 REQ-02 的完整性判斷例外，不在本場景檢查範圍內）；唯一例外：「上一步」
+  在第一步、「下一步」在最後一步屬 REQ-02 的「動作本身無輸入」例外，SHALL
+  呈現 `disabled`，其餘步驟的上一步／下一步 SHALL NOT `disabled`
 - **WHEN** 使用者點擊「儲存並下載」，存檔請求進入 pending 狀態
   （`save.isPending`）
 - **THEN** 僅「儲存並下載」按鈕 SHALL 呈現 `disabled`，步驟導覽項目 SHALL
-  維持可點擊
+  維持可點擊（上一步／下一步的邊界 `disabled` 例外不變）
 
 **Test mapping**: `frontend/src/pages/WizardPage.test.tsx::disabledOnlyDuringPendingSaveNotIncompleteSteps`
 **Verification command**: `cd frontend && npm test -- src/pages/WizardPage.test.tsx`
@@ -454,36 +456,45 @@ anti-clobber 不變量略過寫入，見 S-20），沒有 `storage` 事件監聽
 **Test mapping**: `frontend/src/lib/configForm.test.ts::pristineStateSerializesToExactEmptyPersistableJson`
 **Verification command**: `cd frontend && npm test -- src/lib/configForm.test.ts`
 
-#### S-17: 還原草稿後，File 物件與檔名皆遺失，target 步驟停留在待處理
+#### S-17: 還原草稿後 File 物件遺失、檔名保留，target 步驟停留在待處理
 
-`target.file` 還原後恆為 `null`（`ConfigBuilder.tsx:295`），而
-`target.sample_filename` 在使用者上傳真實 `File` 時從未被寫回 `FormState`
-——它只在存檔當下由 `toConfig()` 從 `state.target.file?.name ??
-state.target.sample_filename` 臨時推導（`ConfigBuilder.tsx:123`），從未
-持久化到 autosave 的 payload 裡。因此草稿還原後兩者都不見；同時
-`deriveStepStates` 對 `target` 步驟的完成判定需要 `hasFile` 為真
-（`previewHelpers.ts:73`），還原後 `hasFile` 恆為 `false`，即使
-`target.columns` 已經非空，`target` 步驟狀態也會一直停在 `pending`。
+`target.file` 還原後恆為 `null`（`configForm.ts` 的 `readDraft`）。上傳真實
+`File` 時，精靈與 `SourcesTree` SHALL 同步把 `file.name` 寫入
+`sample_filename`，因此 autosave payload 帶有檔名，還原後檔名保留、只有
+File 物件遺失。`deriveStepStates` 對 `target` 步驟的完成判定需要 `hasFile`
+為真（`previewHelpers.ts:73`），還原後 `hasFile` 恆為 `false`，`target`
+步驟狀態停在 `pending`。
 
-- **GIVEN** 使用者已上傳範本、選定 `header_row`，`state.target.columns`
-  非空，草稿已因 autosave 寫入（此時 `target.sample_filename` 缺席，
-  `target.file` 依 `toPersistable()` 被拿掉）
+- **GIVEN** 使用者已上傳範本 `expected_output.xlsx`、選定 `header_row`，
+  `state.target.columns` 非空，草稿已因 autosave 寫入（`target.sample_filename`
+  為 `"expected_output.xlsx"`，`target.file` 依 `toPersistable()` 被拿掉）
 - **WHEN** 使用者重新整理頁面並點擊「還原草稿」
 - **THEN** 還原後 `state.target.file` SHALL 為 `null`、
-  `state.target.sample_filename` SHALL 為 `undefined`——摘要畫面「目標
-  範本」段落的檔名欄位 SHALL 顯示為空/未知，而不是拋錯或顯示過期檔名
+  `state.target.sample_filename` SHALL 為 `"expected_output.xlsx"`——摘要
+  畫面「目標範本」段落 SHALL 顯示這個檔名
 - **AND** `deriveStepStates` 對 `target` 步驟的完成判定
   （`previewHelpers.ts:73`）SHALL 因 `hasFile` 恆為 `false` 而回傳
   `pending`，即使 `target.columns` 已經非空——這是已知、接受的限制；精靈
-  SHALL 在 `target` 步驟的空狀態文案中提示使用者「還原草稿後請重新上傳
-  範本檔案以完成這一步」
+  SHALL 在 `target` 步驟的空狀態文案中提示使用者「請重新上傳範本檔：
+  expected_output.xlsx」
 
-**Test mapping**: `frontend/src/lib/configForm.test.ts::restoredDraftHasNullFileAndUndefinedSampleFilename`
+**Test mapping**: `frontend/src/lib/configForm.test.ts::restoredDraftHasNullFileAndKeepsSampleFilename`
 **Verification command**: `cd frontend && npm test -- src/lib/configForm.test.ts`
 
-### REQ-09: 新增路由 /configs/wizard，與既有 /configs/new 並存且產出相同設定
+#### S-21: 還原前顯示草稿摘要；還原後每個缺檔位置顯示原檔名
 
-系統 SHALL 新增路由 `/configs/wizard`，不影響既有 `/configs`、`/configs/new`
+- **GIVEN** `localStorage[DRAFT_KEY]` 有一份可讀草稿：`name` 為 `test_SKU`、`target.sample_filename` 為 `expected_output.xlsx`、兩個來源的 `sample_filename` 分別為 `product_master.xlsx` 與 `supplier_A_quote.xlsx`、一筆 join、三筆 mapping
+- **WHEN** 精靈掛載
+- **THEN** 還原橫幅 SHALL 顯示專案名 `test_SKU`、範本檔名、兩個來源檔名、joins 數 1、mappings 數 3；缺檔名的項目 SHALL 顯示「(未記錄)」而不是空字串
+- **WHEN** 使用者點擊「還原」
+- **THEN** `target` 步驟 SHALL 顯示「請重新上傳範本檔：expected_output.xlsx」；`sources` 步驟每個 `file == null` 的來源下方 SHALL 顯示「請重新上傳：<該來源的 sample_filename>」；使用者上傳檔案後該提示 SHALL 消失
+
+**Test mapping**: `frontend/src/pages/WizardPage.test.tsx::draftBannerShowsSummaryAndReuploadHints`
+**Verification command**: `cd frontend && npm test -- src/pages/WizardPage.test.tsx`
+
+### REQ-09: 新增路由 /wizard 作為預設首頁，與既有 /configs/new 並存且產出相同設定
+
+系統 SHALL 新增路由 `/wizard`；`/` SHALL 以 `Navigate` 導向 `/wizard`；舊路徑 `/configs/wizard` SHALL 以 `Navigate` 導向 `/wizard`；不影響既有 `/configs`、`/configs/new`
 路由（`frontend/src/App.tsx:41-42`）；兩個入口 SHALL 透過同一個共用的
 `toConfig()`（REQ-11 新增的 `frontend/src/lib/configForm.ts` 匯出，取代
 兩個頁面各自維護一份邏輯）計算設定，對相同輸入產出相同的設定 JSON。此需求
@@ -692,14 +703,14 @@ S-02、S-03 各自獨立驗證過都正確、且都在守一條本專案已經�
 ## Requirements Checklist
 
 - [ ] REQ-01: 精靈沿用既有 `STEP_IDS` 五步驟，不新增第三套步驟枚舉
-- [ ] REQ-02: 步驟導覽任何時間皆可自由跳轉、不封鎖；未完成前置條件顯示空狀態而非阻擋；disabled 僅限請求進行中或動作本身無輸入
+- [ ] REQ-02: 步驟導覽任何時間皆可自由跳轉、不封鎖；未完成前置條件顯示空狀態而非阻擋；disabled 僅限請求進行中或動作本身無輸入；上一步／下一步在邊界為 `disabled` 是允許的例外
 - [ ] REQ-03: 每步驟常駐顯示說明句 + 一個範例句，合計兩句
 - [ ] REQ-04: 每步驟就地定義 Domain Language 表指定給它的每一個受控名詞
 - [ ] REQ-05: 輸出欄位由範本標題列與 mapping targets 共同決定，此行為在文案中明說
 - [ ] REQ-06: 終點提供唯讀全貌摘要，每段有「修改」連結跳回對應步驟且狀態保留
 - [ ] REQ-07: 存檔行為與現況一致（驗證 → POST → 清草稿 → 下載）；重名走既有 409 覆寫對話框；非 409 失敗一律顯示非空訊息
 - [ ] REQ-08: 草稿沿用既有 `localStorage` key `etp.configDraft.v1`，與工作台共用；pristine 狀態的寫入路徑 SHALL 略過寫入、不得覆蓋既有草稿（write-side anti-clobber 不變量）；草稿讀寫的邊界情形（並發覆寫、格式錯誤、不得夾帶精靈專屬欄位、File 遺失）有明確契約
-- [ ] REQ-09: 新增路由 `/configs/wizard`，與既有 `/configs/new` 並存，兩入口透過同一個共用 `toConfig()` 產出相同設定
+- [ ] REQ-09: 新增路由 `/wizard`，與既有 `/configs/new` 並存，兩入口透過同一個共用 `toConfig()` 產出相同設定
 - [ ] REQ-10: 空狀態、錯誤狀態、載入狀態逐步驟定義；`FileDropzone` 補上鍵盤 focus 樣式；步驟內容跨導覽不重複呼叫解析 API
 - [ ] REQ-11: 抽出共用純模組 `frontend/src/lib/configForm.ts`，不做成 React hook
 - [ ] S-01: 跳過未完成步驟直接前往下一步，顯示空狀態而非阻擋
@@ -718,7 +729,8 @@ S-02、S-03 各自獨立驗證過都正確、且都在守一條本專案已經�
 - [ ] S-14: 兩個介面各自寫草稿時，後寫入者覆蓋前者；每次寫入帶版本與寫入者標記
 - [ ] S-15: 草稿格式錯誤時不得靜默消失——讀取失敗回傳可辨識的失敗結果
 - [ ] S-16: 精靈不得在 persisted payload 中加入自己專屬的欄位
-- [ ] S-17: 還原草稿後，File 物件與檔名皆遺失，target 步驟停留在待處理
+- [ ] S-17: 還原草稿後，File 物件遺失、檔名保留，target 步驟停留在待處理
+- [ ] S-21: 還原前橫幅顯示草稿摘要（專案名、範本檔名、來源檔名、joins/mappings 數）；還原後每個缺檔位置顯示「請重新上傳：<檔名>」
 - [ ] S-18: `FileDropzone` 可視根元素的鍵盤 focus 樣式（fail-then-pass）
 - [ ] S-19: 步驟內容跨導覽維持掛載，不重複呼叫解析 API
 - [ ] S-20: pristine 狀態掛載時不得覆蓋既有草稿（write-side anti-clobber 不變量，fail-then-pass）

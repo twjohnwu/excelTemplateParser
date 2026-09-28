@@ -6,7 +6,7 @@ Requires only Docker — no Node/npm needed.
 
 ```bash
 bash scripts/up.sh
-# → http://localhost:5173
+# → http://localhost:5173  (opens the Setup Wizard at /wizard)
 ```
 
 By default, `scripts/up.sh` does no host build: `docker compose up -d` builds the frontend

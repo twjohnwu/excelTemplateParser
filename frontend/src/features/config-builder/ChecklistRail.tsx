@@ -10,15 +10,23 @@ type Props = {
   states: Record<StepId, StepStatus>;
   errorCounts: Record<StepId, number>;
   onStepClick: (id: StepId) => void;
+  activeStep?: StepId;
+  className?: string;
 };
 
-export function ChecklistRail({ states, errorCounts, onStepClick }: Props) {
+export function ChecklistRail({
+  states,
+  errorCounts,
+  onStepClick,
+  activeStep,
+  className,
+}: Props) {
   const { t } = useTranslation();
 
   return (
     <nav
       aria-label={t("config.rail.label")}
-      className="flex w-28 shrink-0 flex-col gap-1 self-start rounded-lg border p-2"
+      className={className ?? "flex w-28 shrink-0 flex-col gap-1 self-start rounded-lg border p-2"}
     >
       {STEP_IDS.map((id) => {
         const status = states[id];
@@ -27,7 +35,9 @@ export function ChecklistRail({ states, errorCounts, onStepClick }: Props) {
             key={id}
             type="button"
             onClick={() => onStepClick(id)}
-            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent"
+            className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent${
+              activeStep === id ? " bg-accent font-medium" : ""
+            }`}
           >
             {status === "done" ? (
               <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />

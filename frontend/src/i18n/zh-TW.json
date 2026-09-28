@@ -3,9 +3,13 @@
     "title": "Excel 範本轉換",
     "configBuilder": "專案設定",
     "batchRunner": "批次轉換",
+    "wizard": "建立精靈",
     "language": "語言",
     "langLabel": "中",
-    "theme": { "light": "淺色", "dark": "深色" }
+    "theme": {
+      "light": "淺色",
+      "dark": "深色"
+    }
   },
   "jobs": {
     "active": "進行中作業",
@@ -48,8 +52,13 @@
     "saveAndDownload": "儲存並下載",
     "downloadCurrent": "下載當前設定檔",
     "draftRestorePrompt": "您有未完成的設定，是否還原？",
+    "draftRestoreWriter": "（來自：{{writer}}）",
     "draftRestore": "還原",
     "draftDiscard": "捨棄",
+    "draftUnreadable": "儲存的草稿無法讀取，您可以捨棄它後重新開始。",
+    "draftSummary": "專案：{{name}}．範本：{{target}}．來源：{{sources}}．Joins：{{joins}}．Mappings：{{mappings}}",
+    "draftUnrecorded": "(未記錄)",
+    "reuploadHint": "請重新上傳：{{filename}}",
     "overwriteConfirm": "專案『{{name}}』已存在，是否覆蓋？",
     "sourcesPane": "來源",
     "joinsPane": "Join 關聯",
@@ -87,7 +96,8 @@
       "step1": "1　上傳範本",
       "step2": "2　上傳來源",
       "step3": "3　對應欄位",
-      "cta": "上傳範本"
+      "cta": "上傳範本",
+      "stayHere": "或留在工作台自己設定"
     },
     "rail": {
       "label": "設定進度",
@@ -159,6 +169,7 @@
   "errors": {
     "generic": "發生錯誤，請聯絡管理員",
     "requestId": "請求 ID：{{id}}",
+    "requestIdSuffix": "（請求 ID：{{id}}）",
     "duplicateConfig": "專案『{{name}}』已存在",
     "invalidName": "專案名稱僅可含中英文、數字、底線、連字號、空格，長度 1–80"
   },
@@ -177,6 +188,7 @@
     "columnNotInSource": "此欄位不在來源『{{alias}}』的欄位清單中"
   },
   "issue": {
+    "labelWithMessage": "{{label}}：{{message}}",
     "label": {
       "mappingRow": "欄位「{{target}}」",
       "mappingRowN": "第 {{n}} 列",
@@ -188,5 +200,124 @@
   "mobile": {
     "title": "請使用桌機",
     "body": "本工具的設定操作需要較大畫面，建議於桌機或筆電上使用。"
+  },
+  "wizard": {
+    "step": {
+      "common": {
+        "termDefinitionOpen": "（",
+        "termDefinitionClose": "）"
+      },
+      "target": {
+        "description": "範本是你最後要交出去的 Excel 格式，這個檔案的標題列(header row)決定輸出會有哪些欄位。",
+        "example": "例如：客戶每月要的銷售月報表，標題列就是「訂單編號」「客戶名稱」那一列。",
+        "restoredEmptyState": "請重新上傳範本檔：{{filename}}",
+        "terms": {
+          "targetTemplate": {
+            "term": "目標範本",
+            "definition": "你最後要交出去的 Excel 格式"
+          },
+          "sheet": {
+            "term": "工作表",
+            "definition": "一個 Excel 檔裡可以有好幾個分頁，每個分頁就是一個工作表"
+          },
+          "headerRow": {
+            "term": "標題列",
+            "definition": "欄位名稱所在的那一列，例如「訂單編號」「客戶名稱」所在列"
+          }
+        }
+      },
+      "sources": {
+        "description": "資料從哪來的檔案，可以有多個，其中恰有一個是主檔(primary)。",
+        "example": "例如：訂單主檔(primary) + 客戶資料表(lookup)。",
+        "terms": {
+          "sourceFile": {
+            "term": "來源檔",
+            "definition": "資料實際從哪個檔案來"
+          },
+          "alias": {
+            "term": "alias",
+            "definition": "你自己取的簡短代號，之後串接、對應都用這個代號指這份檔案"
+          },
+          "primary": {
+            "term": "primary/主檔",
+            "definition": "要被逐筆處理的那份主要資料；其他來源檔是輔助查找用"
+          },
+          "role": {
+            "term": "role",
+            "definition": "來源檔的身分標記：primary（主檔）或 lookup（輔助查找檔）"
+          }
+        }
+      },
+      "joins": {
+        "description": "只有多個來源檔時才需要：告訴系統哪一欄是兩邊共同的鍵(join)。",
+        "example": "例如：orders.客戶代號 = customers.代號。",
+        "terms": {
+          "join": {
+            "term": "join/串接",
+            "definition": "告訴系統兩份檔案裡哪一欄代表同一件事，才能對得起來"
+          }
+        }
+      },
+      "mappings": {
+        "description": "這裡每一列就是輸出檔的一個欄位；列上的設定決定這個欄位的值從哪裡來。",
+        "example": "例如：新增一列、目標填「客戶名稱」、來源選 customers.名稱，輸出檔就多一欄。",
+        "emptyState": "尚未上傳範本，看不到可對應的欄位，先去 Step 1，或直接手動新增一列",
+        "terms": {
+          "mapping": {
+            "term": "對應/mapping",
+            "definition": "輸出的每一欄，值要從哪個來源欄位或固定值來"
+          },
+          "outputColumn": {
+            "term": "輸出欄位",
+            "definition": "輸出檔案實際會有的一欄；mappings 每新增/刪除一列，就等於新增/刪除一個輸出欄位"
+          },
+          "sourceField": {
+            "term": "來源欄位",
+            "definition": "這欄的值逐列抓自指定的來源欄位"
+          },
+          "literal": {
+            "term": "固定值",
+            "definition": "不管來源長怎樣，這欄一律填這個值"
+          },
+          "sourceCell": {
+            "term": "固定儲存格",
+            "definition": "不是逐列取值，而是直接指定來源檔某一格，例如 B2"
+          }
+        }
+      },
+      "save": {
+        "description": "這是最後一步，先核對摘要有沒有漏改的地方，確認無誤後輸入名稱即可存檔下載。",
+        "example": "例如：發現來源檔選錯，可點「修改」跳回 Step 2 調整。"
+      }
+    },
+    "summary": {
+      "edit": "修改",
+      "target": {
+        "heading": "目標範本",
+        "notUploaded": "（尚未上傳，草稿還原後需重新上傳）",
+        "columnsCount": "欄位數：{{n}}",
+        "sheetHeader": "{{sheet}}（標題列 {{headerRow}}）"
+      },
+      "sources": {
+        "heading": "來源清單",
+        "unknownFilename": "（未知檔名）"
+      },
+      "joins": {
+        "heading": "串接",
+        "empty": "無串接"
+      },
+      "mappings": {
+        "heading": "對應"
+      }
+    },
+    "draftRestore": {
+      "writerWizard": "精靈",
+      "writerWorkbench": "工作台",
+      "writerUnknown": "較舊的版本"
+    },
+    "nav": {
+      "prev": "上一步",
+      "next": "下一步"
+    }
   }
 }

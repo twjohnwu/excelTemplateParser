@@ -57,7 +57,7 @@ TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景�
 
 ## Tasks
 
-- [ ] `[INFRA]` 新增 `wizard.*` i18n 命名空間
+- [x] `[INFRA]` 新增 `wizard.*` i18n 命名空間
   - Reason: 純資料鍵值新增，沒有自己的場景 id；是 Task 3、Task 6 文案渲染測試
     的前置資料，本身不構成可獨立斷言的行為。
   - 內容：在 `frontend/src/i18n/zh-TW.json` 與 `frontend/src/i18n/en.json`
@@ -71,7 +71,7 @@ TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景�
     `frontend/src/lib/i18nGuard.test.ts` 已存在，比對兩份 JSON 的 key 集合是否
     一致；本次新增的 `wizard.*` key 必須兩份檔案都有，否則此測試會 fail）
 
-- [ ] `[INFRA]` `ChecklistRail` 新增可選 prop `activeStep`／`className`
+- [x] `[INFRA]` `ChecklistRail` 新增可選 prop `activeStep`／`className`
   - Reason: 新增純呈現用的可選 prop，沒有專屬場景 id 驗證高亮效果（spec.md
     S-01~S-19 沒有任何場景斷言 `activeStep` 的視覺高亮）；既有唯一呼叫端
     `ConfigBuilder.tsx:533` 不需修改（`design-fe.md:29` 已核對 `grep -rn
@@ -92,7 +92,7 @@ TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景�
     -- src/pages/ConfigBuilder.test.ts` 需持續通過，確認可選 prop 未破壞既有
     呼叫端）
 
-- [ ] `[INFRA]` `ConfigBuilder` 抽取前特徵化測試（`toConfig`／`toPersistable`／`restoreDraft` 契約鎖定）
+- [x] `[INFRA]` `ConfigBuilder` 抽取前特徵化測試（`toConfig`／`toPersistable`／`restoreDraft` 契約鎖定）
   - Reason: 這是抽取重構的安全網，沒有自己的場景 id——它鎖定的是「現行實作的
     確切輸出」，不是 spec.md 的行為條款本身；沒有它，下一個任務把
     `toConfig()`/`toPersistable()`/`restoreDraft()` 搬進 `configForm.ts`
@@ -188,7 +188,7 @@ TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景�
     而 fail，這正是它與現有只覆蓋 `isPristineState` 的
     `ConfigBuilder.test.ts` 的差異所在。
 
-- [ ] `` `S-05,S-06,S-07,S-12,S-13,S-14,S-15,S-16,S-17,S-20` `` `[NEW]` 抽出共用純模組 `configForm.ts`（REQ-11）並重接 `ConfigBuilder.tsx`
+- [x] `` `S-05,S-06,S-07,S-12,S-13,S-14,S-15,S-16,S-17,S-20` `` `[NEW]` 抽出共用純模組 `configForm.ts`（REQ-11）並重接 `ConfigBuilder.tsx`
   - Merged-task form：十個場景的 `Test mapping` 皆指向同一個檔案
     `frontend/src/lib/configForm.test.ts`，依 module-convergence rule 合併為
     一個任務，RED 一次寫齊十個測試函式。
@@ -223,7 +223,7 @@ TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景�
     介面實作：`FormState`/`PersistableFormState`/`ToConfigResult`/
     `DraftWriter`/`DraftMeta`/`DraftReadResult` 型別、
     `DRAFT_KEY`/`DRAFT_META_VERSION`/`EMPTY_PERSISTABLE_JSON`/
-    `DEFAULT_SAVE_ERROR_MESSAGE` 常數、`emptyState`/`toPersistable`/
+    `DEFAULT_SAVE_ERROR_KEY` 常數、`emptyState`/`toPersistable`/
     `isPristineState`/`toConfig`/`formatSaveError`/`readDraft`/`writeDraft`/
     `draftWriterLabel` 函式（行為規格見 `design-fe.md` 第 122-181 行「行為說明」
     段落，`writeDraft` 的 pristine 略過寫入 guard（REQ-08 anti-clobber
@@ -281,7 +281,7 @@ TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景�
   - Spec re-check: 重讀 `spec.md` S-05、S-06、S-07、S-12、S-13、S-14、S-15、
     S-16、S-17、S-20，確認實作仍符合各自的 GIVEN/WHEN/THEN
 
-- [ ] `S-04` `[NEW]` `WizardStepShell` 常駐說明/範例句與 inline 名詞定義（REQ-03, REQ-04）
+- [x] `S-04` `[NEW]` `WizardStepShell` 常駐說明/範例句與 inline 名詞定義（REQ-03, REQ-04）
   - 依賴：i18n 任務（文案來源）。不依賴 `configForm.ts`（`WizardStepShell`
     只讀 `STEP_IDS`/`StepId`，`import { STEP_IDS, type StepId } from
     "@/lib/previewHelpers"`，`previewHelpers.ts:19`）。
@@ -301,8 +301,9 @@ TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景�
     `stepId`/`description`/`example`/`terms`/`children`，`design-fe.md:319-330`
     完整簽名），渲染規則：`description`/`example` 各一個 `<p>`，不放入
     `<details>`/`Popover`/`Tooltip`；`terms` 逐項渲染 `<dfn
-    title={definition} className="underline decoration-dotted">{term}</dfn>`
-    內嵌於文案中
+    title={definition} className="underline decoration-dotted">{term}</dfn>`，
+    並附上可見文字定義（不彈窗、不用 tooltip 藏起來，滑鼠移開也看得到，見
+    `design-ux.md:122`），`title` 屬性保留為次要輔助，不作為定義的唯一呈現
   - Verify GREEN: `cd frontend && npm test -- src/features/config-wizard/WizardStepShell.test.tsx`
     passes
   - REFACTOR: 檢查 `WizardStepShell` 是否符合 SOLID（單一職責：只負責
@@ -311,7 +312,7 @@ TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景�
   - Spec re-check: 重讀 `spec.md` S-04，確認五步驟名詞定義覆蓋範圍與
     Domain Language 表「首次定義步驟」欄一致
 
-- [ ] `S-18` `[MODIFY]` `FileDropzone` 可視根元素鍵盤 focus 樣式（REQ-10）
+- [x] `S-18` `[MODIFY]` `FileDropzone` 可視根元素鍵盤 focus 樣式（REQ-10）
   - Existing target: `frontend/src/components/FileDropzone.tsx:42-49`
     的 `<div {...getRootProps()}>` 根元素（已開檔確認：目前的 `cn(...)`
     呼叫，第一個字串參數為
@@ -340,7 +341,7 @@ TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景�
   - Spec re-check: 重讀 `spec.md` S-18，確認斷言目標為可視根元素而非隱藏
     `<input>`，且變更後 fail-then-pass 皆成立
 
-- [ ] `` `S-01,S-02,S-03,S-08,S-09,S-10,S-11,S-19` `` `[NEW]` `WizardPage` 主體：步驟導覽、摘要、存檔流程（REQ-01, REQ-02, REQ-06, REQ-07, REQ-08, REQ-09, REQ-10）
+- [x] `` `S-01,S-02,S-03,S-08,S-09,S-10,S-11,S-19` `` `[NEW]` `WizardPage` 主體：步驟導覽、摘要、存檔流程（REQ-01, REQ-02, REQ-06, REQ-07, REQ-08, REQ-09, REQ-10）
   - Merged-task form：八個場景的 `Test mapping` 皆指向同一個檔案
     `frontend/src/pages/WizardPage.test.tsx`，依 module-convergence rule
     合併為一個任務，RED 一次寫齊八個測試函式。
@@ -385,6 +386,9 @@ TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景�
     - 新增 `frontend/src/features/config-wizard/WizardSummary.tsx`（S-08，
       `design-fe.md:359-392` 完整簽名與四段內容規則），供 `save` 步驟
       使用，`onEdit` callback 呼叫 `setCurrentStep`
+    - `SourcesTree` 新增可選 prop `showTarget?: boolean`（預設 `true`）；
+      `sources` 步驟呼叫 `SourcesTree` 時傳入 `showTarget={false}`，避免
+      目標範本上傳 UI 與 `target` 步驟重複顯示；工作台呼叫端維持不變
   - Verify GREEN: `cd frontend && npm test -- src/pages/WizardPage.test.tsx`
     passes
   - REFACTOR: 檢查 `WizardPage` 是否符合 SOLID（狀態擁有與導覽邏輯集中於
@@ -396,7 +400,7 @@ TDD 任務，各自對應一個測試檔、一次 RED 寫齊該檔全部場景�
     S-11、S-19，確認實作仍符合各自的 GIVEN/WHEN/THEN，特別是 S-01/S-02
     的「無 disabled 步驟閘門」與 S-19 的「不重複呼叫解析 API」
 
-- [ ] `[INFRA]` 新增路由 `/configs/wizard`
+- [x] `[INFRA]` 新增路由 `/configs/wizard`
   - Reason: `App.tsx` 路由註冊是接線工作，沒有專屬場景 id 直接斷言路由本身
     （`spec.md` REQ-09 明訂「此需求沒有獨立場景」）；`WizardPage.test.tsx`
     的 8 個場景都直接 render `<WizardPage />`，不經過 router 斷言路徑可達性。

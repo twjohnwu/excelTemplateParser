@@ -113,7 +113,7 @@ npm run e2e   # Playwright, needs the docker stack up
 | Change | Don't forget |
 |---|---|
 | Add a mapping field | Both `backend/app/schemas.py` and `frontend/src/lib/schemas.ts` (xor + cross-field check); mapper if it changes pipeline shape; UI in `MappingRow.tsx` (mode toggle + collapsed-row rendering) |
-| Add a config field | Schema both ends; ConfigBuilder `toConfig` / `restoreDraft` / `EMPTY_PERSISTABLE_JSON`; preflight required-column collection in `api/jobs.py::_collect_required_columns` if relevant |
+| Add a config field | Schema both ends; shared `frontend/src/lib/configForm.ts` `toConfig` / `readDraft` per-field defaulting / `EMPTY_PERSISTABLE_JSON` (both `ConfigBuilder` and `WizardPage` consume this module, so no per-surface change needed); preflight required-column collection in `api/jobs.py::_collect_required_columns` if relevant |
 | Add a worker stage | Re-evaluate `df_needed_aliases` — a new stage may need its own "needed-by-stage" alias set; mirror the filter in `_run_preflight` |
 | Add an autosave / autoload | Define behavior at three boundaries: empty input / mount tick / storage cleanup. Never let an auto behavior mutate user data without explicit consent |
 | Add hardcoded UI color | Pair with explicit `text-*` + `dark:*` variants; cross-check `MappingRow.tsx` for the canonical pattern |

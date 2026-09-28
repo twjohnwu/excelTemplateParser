@@ -33,11 +33,18 @@ contract 變更——`WizardPage` 用到的每一個端點都已存在於
 | `frontend/src/i18n/zh-TW.json` | 修改 | 新增 `wizard.*` 命名空間：五步驟說明句/範例句/inline 定義字串、摘要標籤、草稿還原提示的「精靈／工作台」寫入者字串 |
 | `frontend/src/i18n/en.json` | 修改 | 同上，補齊 `wizard.*` 對應鍵（`i18nGuard.test.ts` 會比對兩份檔案的 key 是否一致，已讀 `frontend/src/lib/i18nGuard.test.ts` 存在此守門測試，須同步新增） |
 
-`frontend/src/features/config-builder/SourcesTree.tsx`、`JoinsEditor.tsx`、
+`frontend/src/features/config-builder/JoinsEditor.tsx`、
 `MappingsList.tsx`、`MappingRow.tsx`、`components/SheetHeaderPicker.tsx`、
 `features/config-builder/PreviewDialog.tsx`、`lib/configHelpers.ts`
 （`mergeMappingsWithColumns`）**不修改**——精靈直接複用現有 props-in/
 callback-out 介面（見「per-step 元件組成」節）。
+
+`frontend/src/features/config-builder/SourcesTree.tsx` 新增一個可選 prop
+`showTarget?: boolean`（預設 `true`）：精靈的 `sources` 步驟傳入
+`showTarget={false}`，工作台呼叫端（`ConfigBuilder.tsx:482`）維持不變。原因：
+精靈的 `target` 步驟已經有一份完整的目標範本上傳 UI，若 `sources` 步驟重用
+`SourcesTree` 又原樣顯示同一段上傳區塊，對精靈鎖定的初次使用者會是重複且
+混淆的畫面。
 
 ## 純模組 `frontend/src/lib/configForm.ts`（REQ-11）
 
@@ -106,7 +113,7 @@ export type DraftReadResult =
 export const DRAFT_KEY: string; // "etp.configDraft.v1"
 export const DRAFT_META_VERSION: number; // 1
 export const EMPTY_PERSISTABLE_JSON: string; // JSON.stringify(toPersistable(emptyState()))
-export const DEFAULT_SAVE_ERROR_MESSAGE: string; // "儲存失敗，請重試"（S-12 範例文案，硬編碼——本模組依既有先例不含 i18n）
+export const DEFAULT_SAVE_ERROR_KEY: string; // "errors.generic"（既有 i18n key；本模組不得含 CJK 字面量，見 lib/i18nGuard.test.ts）
 
 // ---- 函式 ----
 export function emptyState(): FormState;
@@ -116,7 +123,7 @@ export function toConfig(state: FormState): ToConfigResult;
 export function formatSaveError(rawMessage: string): string;
 export function readDraft(): DraftReadResult | null;
 export function writeDraft(state: FormState, writer: DraftWriter): void;
-export function draftWriterLabel(writer: DraftWriter): string; // "精靈" | "工作台"
+export function draftWriterLabel(writer: DraftWriter): string; // returns "wizard.draftRestore.writerWizard" | "wizard.draftRestore.writerWorkbench" (i18n key; caller renders via `t()`)
 ```
 
 行為說明（behavior-preserving，逐項對照現行程式碼）：
@@ -124,9 +131,18 @@ export function draftWriterLabel(writer: DraftWriter): string; // "精靈" | "�
 - `emptyState()`／`toPersistable()`／`isPristineState()`／`toConfig()`：邏輯與
   `ConfigBuilder.tsx:70-137` 現行實作逐行相同，只是搬到新檔、加上匯出。
 - `formatSaveError(rawMessage)`（S-12）：`rawMessage.trim().length > 0 ?
-  rawMessage : DEFAULT_SAVE_ERROR_MESSAGE`；呼叫端（`ConfigBuilder.tsx:333`
-  的 `setSaveError(e instanceof Error ? e.message : String(e))`）改為
-  `setSaveError(formatSaveError(e instanceof Error ? e.message : String(e)))`。
+  rawMessage : DEFAULT_SAVE_ERROR_KEY`——回傳值可能是原始訊息，也可能是
+  i18n KEY 本身；呼叫端必須自行翻譯：`formatSaveError` 的回傳值
+  `=== DEFAULT_SAVE_ERROR_KEY` 時渲染 `t(DEFAULT_SAVE_ERROR_KEY)`，否則原樣
+  渲染該值。這一步呼叫端翻譯是必要的——`formatSaveError` 本身回傳非空字串
+  不代表畫面上顯示的就是人類可讀文字，S-12「畫面 SHALL 顯示這則訊息」要求
+  的是翻譯後的文字，未翻譯的原始 key 直接顯示在畫面上即不滿足 S-12。
+  呼叫端（`ConfigBuilder.tsx:333` 的 `setSaveError(e instanceof Error ?
+  e.message : String(e))`）改為：
+  ```
+  const formatted = formatSaveError(e instanceof Error ? e.message : String(e));
+  setSaveError(formatted === DEFAULT_SAVE_ERROR_KEY ? t(DEFAULT_SAVE_ERROR_KEY) : formatted);
+  ```
 - `readDraft()`（S-15）：內部執行 `localStorage.getItem(DRAFT_KEY)`；
   - 沒有任何值：回傳 `null`（對應現行 `ConfigBuilder.tsx:224` 的
     `if (draft && !loadName)` 判斷——沒有草稿不是失敗）。
@@ -151,8 +167,11 @@ export function draftWriterLabel(writer: DraftWriter): string; // "精靈" | "�
      （同 `ConfigBuilder.tsx:274-276`）。
   4. S-14「每一次寫入 SHALL 附加版本/寫入者標記」只約束「真的發生的寫入」
      ——步驟 2 略過的寫入不算一次寫入，不受 S-14 拘束，兩者不衝突。
-- `draftWriterLabel(writer)`（S-14）：`writer === "wizard" ? "精靈" :
-  "工作台"`，供呼叫端組出「這份草稿是從精靈/工作台寫入的」提示文字。
+- `draftWriterLabel(writer)`（S-14）：回傳 i18n key（`writer === "wizard" ?
+  "wizard.draftRestore.writerWizard" : "wizard.draftRestore.writerWorkbench"`），
+  呼叫端需自行透過 `t()` 轉譯後再組出「這份草稿是從精靈/工作台寫入的」提示文字。
+  本模組（`configForm.ts`）不得含任何 CJK 字面值，包含 Unicode escape
+  sequence 形式，依 `frontend/src/lib/i18nGuard.test.ts` 的規則。
 
 **S-14／S-16／S-20 的關係（已決議）**：`_draftMeta` 放置方式（sibling 鍵）
 與「pristine 狀態該不該被寫入」是兩個獨立問題，不得合併成同一個判準
@@ -203,24 +222,37 @@ import {
 `restoreDraft()`（`:287-308`）改寫為：草稿偵測 effect（`:222-228`）改成呼叫
 `readDraft()`（保留掛載時機的 snapshot 語意：把 `readDraft()` 的回傳結果直接
 存進 `draftSnapshotRef`，型別從 `string | null` 改為 `DraftReadResult | null`，
-不再另外存原始字串），`restoreDraft()` 本體則變成：
+不再另外存原始字串），`restoreDraft()` 本體則變成（現行 `ConfigBuilder.tsx`
+的實際樣貌，`useRef` 維持不變，`:148`）：
 
 ```ts
 const restoreDraft = () => {
   const result = draftSnapshotRef.current;
   if (!result) return;
   if (result.ok) setState(result.state);
-  else setDraftParseError(true); // 新增一個 boolean state，顯示「草稿格式無法讀取，已略過」
   setDraftFound(false);
   draftSnapshotRef.current = null;
 };
 ```
 
+`ConfigBuilder.tsx` 目前沒有 `draftParseError` state——`result.ok === false`
+（草稿格式無法讀取）時 `restoreDraft()` 直接略過、不設任何旗標，畫面上不會
+顯示「已略過」訊息。`WizardPage.tsx` 走的是另一條路：它把草稿快照改存進
+`useState<DraftReadResult | null>`（`draftSnapshot`，`WizardPage.tsx:100`）而
+非 `useRef`，並新增了 `useState(false)` 的 `draftParseError`
+（`WizardPage.tsx:101`），在 `result.ok === false` 時設成 `true` 並渲染對應
+訊息（`WizardPage.tsx:237`）。（可能的未來改動：若要讓 `ConfigBuilder` 收斂
+到與 `WizardPage` 相同的 `useState`＋`draftParseError` 樣貌，是一個尚未執行
+的待辦，不是現行設計。）
+
 autosave effect（`:270-279`）改為呼叫 `writeDraft(state, "workbench")`（保留
 `DEBOUNCE_MS = 1000` 的 `setTimeout` 包裹不變，這段 React 接線本身不搬——即
 REQ-11「誠實的成本」段落點名的那 ~15 行）。`handleSave` 的 catch 分支
-（`:328-334`）改為 `setSaveError(formatSaveError(e instanceof Error ?
-e.message : String(e)))`。
+（`:328-334`）改為：
+```
+const formatted = formatSaveError(e instanceof Error ? e.message : String(e));
+setSaveError(formatted === DEFAULT_SAVE_ERROR_KEY ? t(DEFAULT_SAVE_ERROR_KEY) : formatted);
+```
 
 `ConfigBuilder.test.ts:3` 的 `import { isPristineState } from
 "./ConfigBuilder"` 改為 `import { isPristineState } from "@/lib/configForm"`
@@ -357,16 +389,15 @@ export function WizardStepShell({ stepId, description, example, terms, children 
   `test`（未來 `WizardStepShell.test.tsx`）可以用 `getByText` 分別斷言
   `description` 與 `example` 兩個字串都在畫面上、都不在 `hidden`/`display:
   none` 祖先內。
-- 渲染規則（REQ-04）：對 `terms` 陣列逐項渲染一個 `<dfn title={definition}
-  className="underline decoration-dotted">{term}</dfn>` 內嵌在
-  `description`/`example` 的文案裡（`wizardCopy.ts` 的文案字串本身用
-  `{{term}}` 佔位符標記名詞位置，`WizardStepShell` 用一個小型 template
-  函式把 `<dfn>` 插入對應位置——這個 template 函式本身可以是
-  `wizardCopy.ts` 匯出的一個 pure helper，不歸入 `configForm.ts`，因為它是
-  wizard 專屬的文案渲染邏輯，不是 `ConfigBuilder`/`WizardPage` 共用的表單
-  邏輯）。測試斷言方式：對每個 `stepId`，逐一核對 Domain Language 表「首次
-  定義步驟」欄指定給該步驟的名詞，`terms` 陣列都要有對應項目、且
-  `definition` 非空字串。
+- 渲染規則（REQ-04，現行實作）：`terms` 陣列不內嵌在
+  `description`/`example` 的文案裡，而是在兩句話下方另起一個 `<p>`，逐項渲染
+  `<dfn title={t(definitionKey)} className="underline decoration-dotted">
+  {t(termKey)}</dfn>`，項目間以空白分隔（`WizardStepShell.tsx`）。測試斷言
+  方式：對每個 `stepId`，逐一核對 Domain Language 表「首次定義步驟」欄指定
+  給該步驟的名詞，`terms` 陣列都要有對應項目、且 `definition` 非空字串。
+  （可能的未來改動：若之後想把名詞內嵌回句子裡，可以讓 `wizardCopy.ts` 的
+  文案字串用 `{{term}}` 佔位符標記位置、由 `WizardStepShell` 用 template
+  函式插入 `<dfn>`——這只是尚未實作的構想，不是現行設計。）
 
 ## `WizardSummary`（REQ-06）
 
@@ -408,7 +439,7 @@ onEdit(stepId)}`）：
 | 步驟 | 元件 | Props 來源 |
 |---|---|---|
 | `target` | `FileDropzone`（`accent="target"`）+ `SheetHeaderPicker` | `FileDropzone` Props：`FileDropzone.tsx:8-14`；`SheetHeaderPicker` Props：`SheetHeaderPicker.tsx:19-23` |
-| `sources` | `SourcesTree` | Props：`SourcesTree.tsx:27-43` |
+| `sources` | `SourcesTree`（傳入 `showTarget={false}`，因 `target` 步驟已涵蓋目標範本上傳 UI） | Props：`SourcesTree.tsx:27-43`（含新增的可選 `showTarget?: boolean`，預設 `true`） |
 | `joins` | `JoinsEditor` | Props：`JoinsEditor.tsx:14-24` |
 | `mappings` | `MappingsList`（內部渲染 `MappingRow`） | `MappingsList` Props：`MappingsList.tsx:13-27`；`MappingRow` Props：`MappingRow.tsx:16-31` |
 | `save` | `WizardSummary`（新）+ 名稱 `Input` + 「儲存並下載」`Button` + 覆寫 `Dialog` | 見上節 |
@@ -476,9 +507,12 @@ focus-visible:ring-ring` 的既有先例見 `button.tsx:8`）。不使用
   `err.invalidName` issue 轉成人類可讀文字，顯示在名稱欄位旁——不呼叫
   `POST /api/configs`。
 - **非 409 失敗一律非空訊息（S-12）**：`catch` 分支非 `ApiError` 409 時，
-  `setSaveError(formatSaveError(e instanceof Error ? e.message :
-  String(e)))`——`formatSaveError` 保證回傳值非空字串（見 `configForm.ts`
-  節），`{saveError && <div className="text-sm text-destructive">
+  ```
+  const formatted = formatSaveError(e instanceof Error ? e.message : String(e));
+  setSaveError(formatted === DEFAULT_SAVE_ERROR_KEY ? t(DEFAULT_SAVE_ERROR_KEY) : formatted);
+  ```
+  ——`formatSaveError` 保證回傳值非空字串（見 `configForm.ts`
+  節），呼叫端翻譯後的字串同樣非空，`{saveError && <div className="text-sm text-destructive">
   {saveError}</div>}`（沿用 `ConfigBuilder.tsx:528` 的條件式渲染寫法）因此
   不會因為空字串是 falsy 而整段不顯示。
 - **`target` 步驟載入中**：`SheetHeaderPicker` 本身有 `loading` state

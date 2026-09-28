@@ -11,8 +11,13 @@ import { describe, it, expect } from "vitest";
 
 const EXEMPTIONS: string[] = [];
 
-// CJK Unified Ideographs (U+4E00–U+9FFF) + Extension A (U+3400–U+4DBF)
-const CJK_RE = /[一-鿿㐀-䶿]/;
+// CJK Unified Ideographs (U+4E00–U+9FFF) + Extension A (U+3400–U+4DBF) +
+// Halfwidth and Fullwidth Forms (U+FF00–U+FFEF) — this last range covers
+// fullwidth punctuation such as （）： that Chinese authors reach for by
+// habit; it renders as CJK-style typography for every user, English
+// readers included, so it belongs in the i18n JSON files like any other
+// hardcoded Chinese-typographic choice, not baked into source.
+const CJK_RE = /[一-鿿㐀-䶿＀-￯]/;
 
 function collectSourceFiles(dir: string): string[] {
   const results: string[] = [];

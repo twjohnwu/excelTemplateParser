@@ -5,6 +5,7 @@ import { Toaster } from "sonner";
 
 import { TopMenuBar } from "@/components/TopMenuBar";
 import { ConfigBuilder } from "@/pages/ConfigBuilder";
+import { WizardPage } from "@/pages/WizardPage";
 import { BatchRunner } from "@/pages/BatchRunner";
 import { JobDetail } from "@/pages/JobDetail";
 
@@ -37,8 +38,10 @@ export function App() {
       <TopMenuBar />
       <main className="mx-auto max-w-screen-2xl p-4" style={{ minWidth: 0 }}>
         <Routes>
-          <Route path="/" element={<Navigate to="/configs" replace />} />
+          <Route path="/" element={<Navigate to="/wizard" replace />} />
+          <Route path="/wizard" element={<WizardPage />} />
           <Route path="/configs" element={<ConfigBuilder />} />
+          <Route path="/configs/wizard" element={<Navigate to="/wizard" replace />} />
           <Route path="/configs/new" element={<ConfigBuilder />} />
           <Route path="/batch" element={<BatchRunner />} />
           <Route path="/jobs/:id" element={<JobDetail />} />

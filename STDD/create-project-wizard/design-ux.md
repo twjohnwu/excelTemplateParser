@@ -155,6 +155,7 @@ REQ-04 的義務範圍是**「首次定義步驟」**：一個名詞只需要在
 ```mermaid
 flowchart TD
     Onboard[空狀態 onboarding 卡片<br/>config.onboarding] -- CTA: 上傳範本 --> W1
+    TopMenuBar[頂部導覽分頁] -- 直接進入 --> W1
     ConfigNew["/configs/new 三欄工作台<br/>(既有路徑，不變)"]
     Onboard -. 也可略過，留在三欄工作台 .-> ConfigNew
 
@@ -189,6 +190,13 @@ flowchart TD
 
 > 圖中虛線表示「不受限制、雙向皆可」的自由跳轉，代表 REQ-02 的不封鎖限制；並非
 > 遍歷所有 20 種組合，僅示意任一步都可直達任一步。
+
+## 入口 affordance（REQ-09）
+
+1. **頂部導覽分頁**：`TopMenuBar` 新增一個分頁，指向 `/configs/wizard`。既有的「設定建置」與「批次執行」兩個分頁不變。
+2. **Onboarding 卡片 CTA**：`ConfigBuilder` 空狀態 onboarding 卡片（`ConfigBuilder.tsx:453-476`）的主要按鈕改為導向 `/configs/wizard`；卡片同時保留「留在三欄工作台」的次要路徑，對應本文件 User flows 圖既有的虛線分支。此項是本文件 `:89-91` 早已載明、但實作時未完成的部分，不是新設計。
+3. **兩個入口並存**：`/configs/new` 的既有建立路徑一字不改（REQ-09、`spec.md` Rejected options 已明文否決「精靈取代既有建立入口」）。
+4. **文案來源**：兩個入口的文字皆走 i18n key，不得在程式碼中硬編任何中文或全形標點（`frontend/src/lib/i18nGuard.test.ts` 會擋）。
 
 ## Information architecture（REQ-01, REQ-09）
 

@@ -1,7 +1,7 @@
 /** TopMenuBar: tabs + active-jobs badge dropdown + language + theme toggle. */
 
 import { useEffect, useState } from "react";
-import { NavLink } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Languages, Moon, Sun, Bell } from "lucide-react";
 
@@ -72,8 +72,18 @@ export function TopMenuBar() {
       <div className="mx-auto flex h-14 max-w-screen-2xl items-center px-4">
         <h1 className="mr-6 text-sm font-semibold">{t("app.title")}</h1>
         <nav className="flex items-center gap-1">
-          <NavTab to="/configs">{t("app.configBuilder")}</NavTab>
-          <NavTab to="/batch">{t("app.batchRunner")}</NavTab>
+          <NavTab to="/wizard" activeOn={["/wizard"]}>
+            {t("app.wizard")}
+          </NavTab>
+          {/* Exact paths from App.tsx's route table (App.tsx:41-47): "/configs"
+              and "/configs/new" both render ConfigBuilder and share this tab;
+              "/wizard" is its own route and must NOT match here. */}
+          <NavTab to="/configs" activeOn={["/configs", "/configs/new"]}>
+            {t("app.configBuilder")}
+          </NavTab>
+          <NavTab to="/batch" activeOn={["/batch"]}>
+            {t("app.batchRunner")}
+          </NavTab>
         </nav>
         <div className="ml-auto flex items-center gap-2">
           <DropdownMenu>
@@ -106,18 +116,43 @@ export function TopMenuBar() {
   );
 }
 
-function NavTab({ to, children }: { to: string; children: React.ReactNode }) {
+/**
+ * `activeOn` lists the exact pathnames (from App.tsx's route table) this tab
+ * should light up on. This replaces `NavLink`'s built-in `end`/prefix
+ * matching, which cannot express "/configs and /configs/new, but not
+ * /wizard" — a reader can check `activeOn` against the route table
+ * directly instead of reasoning about react-router's matching semantics.
+ *
+ * Renders a plain `Link` (not `NavLink`) so `isActive` from `activeOn` is
+ * the SINGLE source for both the visual class and `aria-current`.
+ * `NavLink` computes its own `isActive` internally via prefix matching and
+ * always uses it for `aria-current`, regardless of what `className` does —
+ * an `aria-current` prop passed to `NavLink` is captured as the string to
+ * use *when active*, not a way to force presence/absence, so `NavLink`
+ * cannot be made to agree with `activeOn` here; `Link` has no built-in
+ * matching to disagree with.
+ */
+function NavTab({
+  to,
+  activeOn,
+  children,
+}: {
+  to: string;
+  activeOn: string[];
+  children: React.ReactNode;
+}) {
+  const { pathname } = useLocation();
+  const isActive = activeOn.includes(pathname);
   return (
-    <NavLink
+    <Link
       to={to}
-      className={({ isActive }) =>
-        cn(
-          "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-          isActive ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50"
-        )
-      }
+      aria-current={isActive ? "page" : undefined}
+      className={cn(
+        "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+        isActive ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50"
+      )}
     >
       {children}
-    </NavLink>
+    </Link>
   );
 }

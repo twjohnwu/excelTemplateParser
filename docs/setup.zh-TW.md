@@ -6,7 +6,7 @@
 
 ```bash
 bash scripts/up.sh
-# → http://localhost:5173
+# → http://localhost:5173 （開啟 /wizard 設定精靈）
 ```
 
 預設模式不在本機跑 build：`docker compose up -d` 會自己用 `frontend/Dockerfile` 的
