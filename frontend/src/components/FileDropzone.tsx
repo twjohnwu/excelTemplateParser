@@ -11,6 +11,10 @@ type Props = {
   onChange: (files: File[]) => void;
   hint?: string;
   accent?: "primary" | "lookup" | "target";
+  /** Suppresses drop/click/keyboard activation on the root (a plain div,
+   * not a form-associated element, so a surrounding `<fieldset disabled>`
+   * doesn't reach it — see the save-in-flight lock at WizardPage.tsx). */
+  disabled?: boolean;
 };
 
 const ACCENT_CLASS: Record<NonNullable<Props["accent"]>, string> = {
@@ -19,7 +23,14 @@ const ACCENT_CLASS: Record<NonNullable<Props["accent"]>, string> = {
   target: "border-emerald-300 hover:bg-emerald-50/50",
 };
 
-export function FileDropzone({ multiple = false, files, onChange, hint, accent = "primary" }: Props) {
+export function FileDropzone({
+  multiple = false,
+  files,
+  onChange,
+  hint,
+  accent = "primary",
+  disabled = false,
+}: Props) {
   const onDrop = useCallback(
     (accepted: File[]) => {
       onChange(multiple ? [...files, ...accepted] : accepted.slice(0, 1));
@@ -30,6 +41,7 @@ export function FileDropzone({ multiple = false, files, onChange, hint, accent =
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     multiple,
+    disabled,
     accept: {
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
     },
@@ -42,7 +54,8 @@ export function FileDropzone({ multiple = false, files, onChange, hint, accent =
       <div
         {...getRootProps()}
         className={cn(
-          "flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 text-center cursor-pointer transition-colors",
+          "flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
           ACCENT_CLASS[accent],
           isDragActive && "bg-accent/50"
         )}

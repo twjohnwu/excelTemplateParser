@@ -40,6 +40,23 @@ type Props = {
   sourcesErrorCount?: number;
   /** Schema-level issues for the sources section (duplicateAlias, noPrimary, etc.) */
   sourcesSchemaIssues?: z.ZodIssue[];
+  /** Whether to render the target-template upload section. The workbench shows it
+   * by default; the wizard's `sources` step passes `false` because its own `target`
+   * step already covers that UI. */
+  showTarget?: boolean;
+  /** Forwarded to every inner `FileDropzone`/`SheetHeaderPicker` so they go
+   * inert while a save is in flight. Both are plain DOM (`getRootProps()`
+   * div / `<tr onClick>`), not form-associated elements, so a surrounding
+   * `<fieldset disabled>` doesn't reach them — see WizardPage.tsx/
+   * ConfigBuilder.tsx's save-in-flight lock. Defaults to `false` so every
+   * existing call site is unchanged. */
+  disabled?: boolean;
+  /** S-21: when true, every source with no `file` shows a re-upload hint
+   * naming its `sample_filename` under its `FileDropzone` — the wizard
+   * passes `draftWasRestored` here so the hint only appears after a draft
+   * restore, not on a fresh/never-restored form. Defaults to `false` so
+   * every existing call site is unchanged. */
+  showReuploadHint?: boolean;
 };
 
 export function SourcesTree({
@@ -48,6 +65,9 @@ export function SourcesTree({
   sources, onSourcesChange,
   id, targetErrorCount = 0, sourcesErrorCount = 0,
   sourcesSchemaIssues = [],
+  showTarget = true,
+  disabled = false,
+  showReuploadHint = false,
 }: Props) {
   const { t } = useTranslation();
   const newSourceRef = useRef<HTMLDetailsElement | null>(null);
@@ -103,37 +123,41 @@ export function SourcesTree({
   return (
     <div id={id} className="flex flex-col rounded-lg border">
       <div className="p-4 space-y-4">
-        <section>
-          <Label className="mb-2 inline-flex items-center gap-1 text-sm">
-            <FileText className="h-4 w-4 text-emerald-500" />
-            {t("config.targetTemplate")}
-            {targetErrorCount > 0 && (
-              <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-destructive-foreground">
-                {targetErrorCount}
-              </span>
+        {showTarget && (
+          <section>
+            <Label className="mb-2 inline-flex items-center gap-1 text-sm">
+              <FileText className="h-4 w-4 text-emerald-500" />
+              {t("config.targetTemplate")}
+              {targetErrorCount > 0 && (
+                <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-destructive-foreground">
+                  {targetErrorCount}
+                </span>
+              )}
+            </Label>
+            <FileDropzone
+              accent="target"
+              files={targetFile ? [targetFile] : []}
+              onChange={(f) => onTargetFile(f[0] ?? null)}
+              hint={t("config.uploadDropHint")}
+              disabled={disabled}
+            />
+            {targetFile && (
+              <div className="mt-2">
+                <SheetHeaderPicker
+                  file={targetFile}
+                  value={{ sheet: targetSheet, header_row: targetHeaderRow }}
+                  onChange={onTargetMeta}
+                  disabled={disabled}
+                />
+              </div>
             )}
-          </Label>
-          <FileDropzone
-            accent="target"
-            files={targetFile ? [targetFile] : []}
-            onChange={(f) => onTargetFile(f[0] ?? null)}
-            hint={t("config.uploadDropHint")}
-          />
-          {targetFile && (
-            <div className="mt-2">
-              <SheetHeaderPicker
-                file={targetFile}
-                value={{ sheet: targetSheet, header_row: targetHeaderRow }}
-                onChange={onTargetMeta}
-              />
-            </div>
-          )}
-          {targetColumns.length > 0 && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              {t("config.headersPrefix")}{targetColumns.filter(Boolean).join(", ")}
-            </p>
-          )}
-        </section>
+            {targetColumns.length > 0 && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {t("config.headersPrefix")}{targetColumns.filter(Boolean).join(", ")}
+              </p>
+            )}
+          </section>
+        )}
 
         <hr />
 
@@ -208,9 +232,22 @@ export function SourcesTree({
                 <FileDropzone
                   accent={s.role === "primary" ? "primary" : "lookup"}
                   files={s.file ? [s.file] : []}
-                  onChange={(f) => updateSource(idx, { file: f[0] ?? null })}
+                  onChange={(f) =>
+                    updateSource(idx, {
+                      file: f[0] ?? null,
+                      sample_filename: f[0]?.name ?? s.sample_filename,
+                    })
+                  }
                   hint={t("config.uploadDropHint")}
+                  disabled={disabled}
                 />
+                {showReuploadHint && !s.file && (
+                  <p className="text-xs text-muted-foreground">
+                    {t("config.reuploadHint", {
+                      filename: s.sample_filename ?? t("config.draftUnrecorded"),
+                    })}
+                  </p>
+                )}
                 {s.file && (
                   <SheetHeaderPicker
                     file={s.file}
@@ -218,6 +255,7 @@ export function SourcesTree({
                     onChange={({ sheet, header_row, columns }) =>
                       updateSource(idx, { sheet, header_row, columns })
                     }
+                    disabled={disabled}
                   />
                 )}
                 {s.columns.length > 0 && (

@@ -20,9 +20,13 @@ type Props = {
   file: File;
   value: { sheet: string; header_row: number };
   onChange: (v: { sheet: string; header_row: number; columns: string[] }) => void;
+  /** Suppresses row-click header selection. The rows are plain `<tr>`
+   * elements, not form-associated, so a surrounding `<fieldset disabled>`
+   * doesn't reach them — see the save-in-flight lock at WizardPage.tsx. */
+  disabled?: boolean;
 };
 
-export function SheetHeaderPicker({ file, value, onChange }: Props) {
+export function SheetHeaderPicker({ file, value, onChange, disabled = false }: Props) {
   const { t } = useTranslation();
   const [sheets, setSheets] = useState<SheetPreview[]>([]);
   const [loading, setLoading] = useState(false);
@@ -39,12 +43,32 @@ export function SheetHeaderPicker({ file, value, onChange }: Props) {
       .then((res) => {
         if (cancelled) return;
         setSheets(res.sheets);
-        if (!value.sheet && res.sheets.length > 0) {
-          const first = res.sheets[0];
+        // Always (re)compute columns on mount, even when value.sheet is
+        // already set (e.g. a restored draft re-pointed at a re-uploaded
+        // file) — otherwise `columns` stays empty forever for that source,
+        // dropping it from JoinsEditor's field list (JoinsEditor.tsx:30-32).
+        // Fall back to the first sheet when value.sheet isn't in the
+        // response (e.g. it named a sheet from a different file).
+        const matched = res.sheets.find((s) => s.name === value.sheet);
+        const picked = matched ?? res.sheets[0];
+        if (picked) {
+          let headerRow = value.header_row || 1;
+          let idx = headerRow - picked.preview_starts_at;
+          // A restored draft's header_row can point past this file's
+          // preview window (e.g. row 31 picked earlier via "Load 30 more",
+          // but the re-uploaded file's fresh preview only covers rows
+          // 1-30) — or the sheet itself didn't match and we fell back to
+          // the first sheet. Either way the old header_row is meaningless
+          // for this data, so reset to row 1 instead of indexing out of
+          // bounds into `[]`.
+          if (!matched || idx < 0 || idx >= picked.preview_rows.length) {
+            headerRow = 1;
+            idx = 0;
+          }
           onChange({
-            sheet: first.name,
-            header_row: value.header_row || 1,
-            columns: rowAsHeaders(first.preview_rows[(value.header_row || 1) - 1]),
+            sheet: picked.name,
+            header_row: headerRow,
+            columns: rowAsHeaders(picked.preview_rows[idx]),
           });
         }
       })
@@ -136,15 +160,18 @@ export function SheetHeaderPicker({ file, value, onChange }: Props) {
               return (
                 <tr
                   key={i}
-                  onClick={() =>
-                    onChange({
-                      sheet: sheet.name,
-                      header_row: rowNumber,
-                      columns: columnsForHeader(i),
-                    })
+                  onClick={
+                    disabled
+                      ? undefined
+                      : () =>
+                          onChange({
+                            sheet: sheet.name,
+                            header_row: rowNumber,
+                            columns: columnsForHeader(i),
+                          })
                   }
                   className={cn(
-                    "cursor-pointer hover:bg-accent/50",
+                    disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-accent/50",
                     isHeader &&
                       "bg-blue-100 font-semibold text-blue-900 dark:bg-blue-900/40 dark:text-blue-100"
                   )}

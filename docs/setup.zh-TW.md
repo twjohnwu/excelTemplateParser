@@ -2,18 +2,34 @@
 
 ## 一鍵啟動
 
+只需要 Docker，不需要 Node/npm。
+
 ```bash
 bash scripts/up.sh
-# → http://localhost:5173
+# → http://localhost:5173 （開啟 /wizard 設定精靈）
 ```
 
-`scripts/up.sh` 偵測 `frontend/dist/` 是否過期，需要才本機跑 `npm run build`，然後 `docker compose up -d` 起 4 個服務（redis / api / worker / frontend）。
+預設模式不在本機跑 build：`docker compose up -d` 會自己用 `frontend/Dockerfile` 的
+multi-stage build（`node:24.20.0-alpine` build stage → `nginx:alpine` runtime stage）建出
+frontend image，再起 4 個服務（redis / api / worker / frontend）。第一次跑會比較慢，因為要
+建這個 image。
+
+以下兩個旗標需要本機有 Node：
+
+- `bash scripts/up.sh --dev` — 恢復舊的 bind-mount 快速迴圈：本機跑 `npm run build`，
+  重新整理瀏覽器就套用，不用重建 image（在 `docker-compose.yml` 上疊
+  `docker-compose.dev.yml`）。
+- `bash scripts/up.sh --host-build` — Docker Hub 拉 `node:24.20.0-alpine` 卡住時的備援
+  （本機曾觀察到 TLS handshake timeout）：本機建 frontend bundle，建一個不含 Node 的
+  純 nginx image，再把本機建好的 bundle `docker cp` 進正在跑的 container。
 
 要重新整理特定服務：
 
 ```bash
-docker compose restart worker            # 套用 backend 程式變更（volume 掛 ./backend）
-cd frontend && npm run build && docker compose up -d --force-recreate frontend
+docker compose restart worker              # 套用 backend 程式變更（volume 掛 ./backend）
+docker compose up -d --build frontend      # 預設模式：重建 frontend image
+# 或在 --dev（docker-compose.dev.yml）之下：
+# cd frontend && npm run build && docker compose up -d --force-recreate frontend
 ```
 
 ---
@@ -31,7 +47,7 @@ excelTemplateParser/
 │   ├── resume_test.py   ← §8.9 重啟續傳驗證
 │   └── VERIFICATION_REPORT.md
 ├── backend/
-│   ├── pyproject.toml   ← Python 3.12+, FastAPI, RQ, openpyxl, structlog, APScheduler
+│   ├── pyproject.toml   ← Python 3.12+, FastAPI, RQ, python-calamine, openpyxl, structlog, APScheduler
 │   ├── Dockerfile
 │   └── app/
 │       ├── main.py              ← FastAPI entry + lifespan
@@ -45,7 +61,7 @@ excelTemplateParser/
 │       └── workers/{queue,tasks,run}.py
 ├── frontend/
 │   ├── package.json     ← React 18 + Vite + TS + shadcn/ui + zod + TanStack Query
-│   ├── Dockerfile       ← 單階段 nginx:alpine（serve dist/）
+│   ├── Dockerfile       ← multi-stage：node:24.20.0-alpine build → nginx:alpine runtime
 │   ├── nginx.conf       ← / static + /api/ proxy to api:8000
 │   └── src/
 │       ├── pages/{ConfigBuilder,BatchRunner,JobDetail}.tsx
@@ -86,6 +102,9 @@ pytest                    # 單元測試（core / services / api / workers）
 
 ### Frontend
 
+需要 Node 24（見 `frontend/.nvmrc`、`frontend/package.json` 的 `engines.node`；CI 也是
+釘同一個版本）。
+
 ```bash
 cd frontend
 npm install
@@ -114,13 +133,14 @@ backend/.venv/bin/python scripts/resume_test.py     # 重啟續傳場景
 |---|---|---|
 | `REDIS_URL` | `redis://redis:6379/0` | Redis 連線 |
 | `DATA_DIR` | `./data` | 檔案系統根（configs / jobs / redis AOF）；可指 NAS / 外接硬碟 |
-| `MAX_UPLOAD_MB` | `50` | 單檔上傳上限 |
+| `MAX_UPLOAD_MB` | `200` | 單檔上傳上限 |
 | `RQ_WORKERS` | `4` | Worker 並行數 |
-| `JOB_TIMEOUT_MIN` | `10` | 單 subtask 逾時 |
+| `JOB_TIMEOUT_MIN` | `30` | 單 subtask 逾時 |
 | `DOWNLOAD_GRACE_MINUTES` | `60` | ZIP 下載 grace period |
 | `JOB_RETENTION_HOURS` | `24` | 未下載 job 保留時間 |
 | `RESUME_SCAN_SECONDS` | `120` | scan_and_resume 定期掃描間隔（API process）；worker crash 後回收卡住的工作 |
 | `LOG_LEVEL` | `INFO` | structlog level |
+| `XLSX_READER` | `calamine` | xlsx 讀取後端；`openpyxl` 保留舊版逐格語意（錯誤儲存格、純空白字串、只宣告未寫入的尾端空欄） |
 
 ---
 

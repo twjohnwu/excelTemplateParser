@@ -2,7 +2,7 @@
 
 **English** · [繁體中文](README.zh-TW.md)
 
-[![CI](https://github.com/twjohnwu/excelTemplateParser/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/twjohnwu/excelTemplateParser/actions/workflows/ci.yml) [![Version](https://img.shields.io/badge/version-0.2.0-blue)](CHANGELOG.md)
+[![CI](https://github.com/twjohnwu/excelTemplateParser/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/twjohnwu/excelTemplateParser/actions/workflows/ci.yml) [![Version](https://img.shields.io/badge/version-0.3.0-blue)](CHANGELOG.md)
 
 Batch-convert many Excel files of the same format into another format. Author the mapping once, reuse forever. Single-machine Docker deployment, no login required. UI supports zh-TW / English and light / dark mode, both persisted locally.
 
@@ -34,10 +34,13 @@ Batch-convert many Excel files of the same format into another format. Author th
 - **Boundary-only error handling** — every error response carries a `request_id`; `docker compose logs api | grep <id>` finds the full traceback. User-facing messages and engineer-facing tracebacks never mix.
 - **i18n + dark mode** — zh-TW / English, light / dark theme; both persisted in localStorage with no flash on reload.
 - **Autosave + draft restore** — ConfigBuilder autosaves to localStorage and offers an explicit Restore / Discard prompt on revisit; the storage is only mutated by explicit user actions, never auto-purged.
+- **Two ways to build a config** — the Setup Wizard at `/wizard` (default) for a guided first run, or the three-pane workbench under Project Settings when you want everything on one screen; both produce the same JSON.
 
 ---
 
 ## Quick start
+
+Requires only Docker — no Node/npm needed.
 
 ```bash
 bash scripts/up.sh
@@ -45,6 +48,9 @@ bash scripts/up.sh
 
 - UI: http://localhost:5173
 - API: http://localhost:8000
+
+The first run builds the frontend image (Docker downloads a Node base image
+and runs the production build inside it), so it's slower than later runs.
 
 Full setup, dev workflow, environment variables, and CI: [`docs/setup.md`](docs/setup.md).
 
@@ -75,43 +81,51 @@ Each primary file = one subtask = one output xlsx. Lookups are shared across all
 
 ## Walkthrough
 
-End-to-end flow in six steps:
+The Setup Wizard at `/wizard` is the default entry point; the three-pane workbench walkthrough is in [docs/walkthrough-workbench.md](docs/walkthrough-workbench.md).
 
-### 1. Author the config
+### 1. Template
 
-![Project Settings — three-pane workbench](docs/ss/excelTemplateParser-projectSettings.png)
+![Setup Wizard — step 1: Template](docs/ss/Wizard-Step01.png)
 
-Three-pane workbench: left = sources tree (target template + each source's xlsx with sheet & header-row picker). Middle = join rules. Right = mappings with inline condition chips and the source / source_cell / literal toggle. Save → download `{name}.json`.
+Upload the target template — the Excel format you'll ultimately hand over, whose header row determines the output columns. The wizard reads the sheet, lets you pick the header row, and previews the detected columns below the dropzone.
 
-### 2. Restore unsaved draft
+### 2. Sources
 
-![Project Settings — restore banner](docs/ss/excelTemplateParser-projectSettingsRestore.png)
+![Setup Wizard — step 2: Sources](docs/ss/Wizard-Step02.png)
 
-On revisit, if a previous-session draft exists, a non-intrusive banner offers Restore / Discard. The banner only goes away on explicit choice; autosave never touches an empty form, so first-time visitors don't see it.
+Add one `primary` source (the per-row data, batched) plus any number of `lookup` sources, each with its own alias, role, and file upload with header-row detection. Every source's rows preview inline as you add it.
 
-### 3. Batch convert — upload inline config
+### 3. Joins
+
+![Setup Wizard — step 3: Joins](docs/ss/Wizard-Step03.png)
+
+Only needed with multiple source files: pick which column in each pair of files represents the same key (e.g. `primary.SKU = source_2.貨號`) and the join direction (`left`). Add one join per lookup source that needs matching.
+
+### 4. Mappings
+
+![Setup Wizard — step 4: Mappings](docs/ss/Wizard-Step04.png)
+
+One row per output column: choose whether its value is a source field, a fixed cell, or a literal, with optional conditions and a default. Unfinished or invalid rows are flagged in red until every mapping resolves to a source.
+
+### 5. Save
+
+![Setup Wizard — step 5: Save](docs/ss/Wizard-Step05.png)
+
+The last step summarizes the target template, sources, joins, and mappings so you can catch mistakes before committing (each section has an Edit link back to its step). Enter a project name and Save & Download to persist the config and get the `{name}.json` file.
+
+### 6. Batch convert — upload inline config
 
 ![Batch Runner — upload config JSON](docs/ss/excelTemplateParser-uploadConfigFile.png)
 
 If the config isn't saved on the server, upload `{name}.json` directly. The form parses the JSON, dynamically expands upload slots by source alias, and shows the last-used sample filename as a hint per slot.
 
-### 4. Pick saved config + live progress
+### 7. Pick saved config + live progress
 
 ![Batch Runner — saved config dropdown + SSE progress](docs/ss/excelTemplateParser-loadFromRedisAndCheckNotify.png)
 
 For configs already saved on the server (from Project Settings → Save), the dropdown lists them by name (loaded from Redis / `/data/configs/`). Subtask-level progress streams via SSE; the top-bar badge tracks running jobs across page reloads, and the right-rail pulls recent jobs from localStorage so you can revisit any past job.
 
-### 5. Job detail
-
-![Job detail — per-subtask status + download](docs/ss/excelTemplateParser-downloadDetails.png)
-
-Stable URL `/jobs/:id` for sharing. Shows per-subtask status, errors with `request_id` for grep-from-logs, a Cancel button for in-flight jobs, and a Download button that streams the result ZIP (supports HTTP Range / resume).
-
-### 6. Result ZIP
-
-![Result ZIP — output xlsx files + _summary.txt](docs/ss/excelTemplateParser-downloadedZIPFile.png)
-
-The ZIP contains one xlsx per primary input (`{source_filename}.out.xlsx`, style preserved from the target template) plus `_summary.txt` — a per-job manifest listing each subtask's status, duration, and any errors. The manifest doubles as a quick audit trail when batching dozens of files.
+Job detail and the result ZIP are the same for both flows — see [docs/walkthrough-workbench.md](docs/walkthrough-workbench.md) §5–6.
 
 ---
 

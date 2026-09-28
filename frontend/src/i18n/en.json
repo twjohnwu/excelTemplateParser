@@ -3,9 +3,13 @@
     "title": "Excel Template Parser",
     "configBuilder": "Project Settings",
     "batchRunner": "Batch Convert",
+    "wizard": "Setup Wizard",
     "language": "Language",
     "langLabel": "EN",
-    "theme": { "light": "Light", "dark": "Dark" }
+    "theme": {
+      "light": "Light",
+      "dark": "Dark"
+    }
   },
   "jobs": {
     "active": "Active jobs",
@@ -48,8 +52,13 @@
     "saveAndDownload": "Save & Download",
     "downloadCurrent": "Download current config",
     "draftRestorePrompt": "You have an unsaved draft. Restore?",
+    "draftRestoreWriter": "(From: {{writer}})",
     "draftRestore": "Restore",
     "draftDiscard": "Discard",
+    "draftUnreadable": "The saved draft could not be read. You can discard it and start fresh.",
+    "draftSummary": "Project: {{name}} · Template: {{target}} · Sources: {{sources}} · Joins: {{joins}} · Mappings: {{mappings}}",
+    "draftUnrecorded": "(not recorded)",
+    "reuploadHint": "Please re-upload: {{filename}}",
     "overwriteConfirm": "Project \"{{name}}\" already exists. Overwrite?",
     "sourcesPane": "Sources",
     "joinsPane": "Joins",
@@ -87,7 +96,8 @@
       "step1": "1　Upload template",
       "step2": "2　Upload sources",
       "step3": "3　Map fields",
-      "cta": "Upload Template"
+      "cta": "Open the Setup Wizard",
+      "stayHere": "Or set it up in the workbench"
     },
     "rail": {
       "label": "Setup progress",
@@ -159,6 +169,7 @@
   "errors": {
     "generic": "An error occurred. Please contact support.",
     "requestId": "Request ID: {{id}}",
+    "requestIdSuffix": " (Request ID: {{id}})",
     "duplicateConfig": "Project \"{{name}}\" already exists",
     "invalidName": "Project name may contain letters/digits/underscore/hyphen/space, 1–80 chars"
   },
@@ -177,6 +188,7 @@
     "columnNotInSource": "This column is not in source \"{{alias}}\"'s column list"
   },
   "issue": {
+    "labelWithMessage": "{{label}}: {{message}}",
     "label": {
       "mappingRow": "Field \"{{target}}\"",
       "mappingRowN": "Row {{n}}",
@@ -188,5 +200,124 @@
   "mobile": {
     "title": "Please use a desktop browser",
     "body": "Configuration requires more screen space — please open on a desktop or laptop."
+  },
+  "wizard": {
+    "step": {
+      "common": {
+        "termDefinitionOpen": " (",
+        "termDefinitionClose": ")"
+      },
+      "target": {
+        "description": "The template is the Excel format you'll ultimately hand over — its header row determines which columns the output will have.",
+        "example": "For example: a monthly sales report — the header row is the row with \"Order ID\", \"Customer Name\", etc.",
+        "restoredEmptyState": "Please re-upload the template file: {{filename}}",
+        "terms": {
+          "targetTemplate": {
+            "term": "Target template",
+            "definition": "The Excel format you'll ultimately hand over"
+          },
+          "sheet": {
+            "term": "Sheet",
+            "definition": "An Excel file can have multiple tabs; each tab is a sheet"
+          },
+          "headerRow": {
+            "term": "Header row",
+            "definition": "The row that contains column names, e.g. the row with \"Order ID\", \"Customer Name\""
+          }
+        }
+      },
+      "sources": {
+        "description": "Where your data comes from — you can have multiple source files, exactly one of which is the primary.",
+        "example": "For example: an orders file (primary) plus a customer lookup file (lookup).",
+        "terms": {
+          "sourceFile": {
+            "term": "Source file",
+            "definition": "The actual file the data comes from"
+          },
+          "alias": {
+            "term": "Alias",
+            "definition": "A short name you choose; joins and mappings refer to this file by this name"
+          },
+          "primary": {
+            "term": "Primary",
+            "definition": "The main data processed row by row; other source files are used for lookups"
+          },
+          "role": {
+            "term": "Role",
+            "definition": "A source file's role tag: primary or lookup"
+          }
+        }
+      },
+      "joins": {
+        "description": "Only needed when you have multiple source files: tells the system which column in each file represents the same thing (the join key).",
+        "example": "For example: orders.customer_code = customers.code.",
+        "terms": {
+          "join": {
+            "term": "Join",
+            "definition": "Tells the system which column in two files represents the same thing, so rows can be matched"
+          }
+        }
+      },
+      "mappings": {
+        "description": "Each row here is one output column; the settings on a row decide where that column's value comes from.",
+        "example": "For example: add a row, set target to \"Customer Name\", source to customers.name — the output gets one more column.",
+        "emptyState": "No template uploaded yet, so there are no fields to map. Go back to Step 1, or add a row manually.",
+        "terms": {
+          "mapping": {
+            "term": "Mapping",
+            "definition": "For each output column, where its value comes from — a source field or a fixed value"
+          },
+          "outputColumn": {
+            "term": "Output column",
+            "definition": "An actual column in the output file; adding/removing a row in mappings adds/removes an output column"
+          },
+          "sourceField": {
+            "term": "Source field",
+            "definition": "This column's value is read from a specified source column for each row"
+          },
+          "literal": {
+            "term": "Literal",
+            "definition": "Regardless of the source, this column is always filled with the same value"
+          },
+          "sourceCell": {
+            "term": "Fixed cell",
+            "definition": "Instead of reading row by row, read directly from one specific cell in the source file, e.g. B2"
+          }
+        }
+      },
+      "save": {
+        "description": "This is the last step — check the summary for anything you missed, then enter a name to save and download.",
+        "example": "For example: if you picked the wrong source file, click \"Edit\" to jump back to Step 2."
+      }
+    },
+    "summary": {
+      "edit": "Edit",
+      "target": {
+        "heading": "Target template",
+        "notUploaded": "(not uploaded — re-upload required after restoring from a draft)",
+        "columnsCount": "Columns: {{n}}",
+        "sheetHeader": "{{sheet}} (header row {{headerRow}})"
+      },
+      "sources": {
+        "heading": "Sources",
+        "unknownFilename": "(unknown filename)"
+      },
+      "joins": {
+        "heading": "Joins",
+        "empty": "No joins"
+      },
+      "mappings": {
+        "heading": "Mappings"
+      }
+    },
+    "draftRestore": {
+      "writerWizard": "Wizard",
+      "writerWorkbench": "Workbench",
+      "writerUnknown": "an earlier version"
+    },
+    "nav": {
+      "prev": "Back",
+      "next": "Next"
+    }
   }
 }

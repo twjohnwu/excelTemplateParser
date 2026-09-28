@@ -9,8 +9,10 @@ test("upload a multi-sheet xlsx, switch sheet, click a row to set the header", a
 
   // A pristine ConfigBuilder shows the onboarding card instead of the
   // sources/joins/mappings panes (frontend/src/pages/ConfigBuilder.tsx
-  // `showOnboarding && isPristineState(state) ...`); dismiss it first.
-  await page.getByRole("button", { name: en.config.onboarding.cta }).click();
+  // `showOnboarding && isPristineState(state) ...`). Its primary CTA now
+  // navigates to the Setup Wizard (/wizard); the "stay here" link is what
+  // dismisses the card and reveals the workbench panes.
+  await page.getByRole("button", { name: en.config.onboarding.stayHere }).click();
 
   // Target section: single-sheet file, header defaults to row 1 (no picker
   // interaction needed there — the interesting case is the multi-sheet

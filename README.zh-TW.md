@@ -2,7 +2,7 @@
 
 [English](README.md) · **繁體中文**
 
-[![CI](https://github.com/twjohnwu/excelTemplateParser/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/twjohnwu/excelTemplateParser/actions/workflows/ci.yml) [![Version](https://img.shields.io/badge/version-0.2.0-blue)](CHANGELOG.md)
+[![CI](https://github.com/twjohnwu/excelTemplateParser/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/twjohnwu/excelTemplateParser/actions/workflows/ci.yml) [![Version](https://img.shields.io/badge/version-0.3.0-blue)](CHANGELOG.md)
 
 把同一格式的多份 Excel 批次轉換為另一種格式。設定一次、重複套用；單機 Docker 部署，不需登入。UI 支援繁中／英文與淺色／黑暗模式，皆會持久化於瀏覽器。
 
@@ -34,10 +34,13 @@
 - **邊界式錯誤處理**——每個錯誤回應都附 `request_id`；`docker compose logs api | grep <id>` 直接找到完整 traceback。使用者訊息與工程師 traceback 從不混在一起。
 - **i18n + 黑暗模式**——繁中／英文、淺色／黑暗，皆持久化於 localStorage、reload 不閃白。
 - **Autosave + 草稿還原**——ConfigBuilder 自動存草稿到 localStorage，再次進入時跳出明示的「還原 / 捨棄」選擇；localStorage 只被使用者明示操作改動，autosave 不自作主張清理。
+- **兩種建立設定的方式**——預設首頁 `/wizard` 的設定精靈適合第一次上手，「專案設定」的三欄式工作台適合想一眼看到全貌的人；兩者產出同一份 JSON。
 
 ---
 
 ## 一鍵啟動
+
+只需要 Docker，不需要 Node/npm。
 
 ```bash
 bash scripts/up.sh
@@ -45,6 +48,9 @@ bash scripts/up.sh
 
 - UI: http://localhost:5173
 - API: http://localhost:8000
+
+第一次執行會建置 frontend image（Docker 會下載 Node base image 並在裡面跑 production
+build），所以比之後的執行慢。
 
 完整安裝、開發流程、環境變數與 CI：[`docs/setup.zh-TW.md`](docs/setup.zh-TW.md)。
 
@@ -75,43 +81,51 @@ bash scripts/up.sh
 
 ## 操作流程
 
-端到端流程六步驟：
+預設入口是 `/wizard` 的 Setup Wizard；三欄式工作台的操作流程在 [docs/walkthrough-workbench.zh-TW.md](docs/walkthrough-workbench.zh-TW.md)。
 
-### 1. 建立 config
+### 1. Template
 
-![專案設定 — 三欄式工作台](docs/ss/excelTemplateParser-projectSettings.png)
+![Setup Wizard — 步驟 1：Template](docs/ss/Wizard-Step01.png)
 
-三欄式工作台：左欄為資料來源樹（目標範本 + 每個 source 的 sheet 與 header 選擇器），中欄為 join 規則，右欄為映射列表（含 inline 條件 chip 與 來源欄位／固定儲存格／固定值 三選一）。儲存 → 下載 `{name}.json`。
+上傳目標範本——你最終要交付的 Excel 格式，其 header row 決定輸出欄位。Wizard 讀取 sheet 後可選擇 header row，並在 dropzone 下方預覽偵測到的欄位。
 
-### 2. 還原未存檔草稿
+### 2. Sources
 
-![專案設定 — 草稿還原 banner](docs/ss/excelTemplateParser-projectSettingsRestore.png)
+![Setup Wizard — 步驟 2：Sources](docs/ss/Wizard-Step02.png)
 
-再次進入頁面時，若上次的草稿仍在，會跳出非侵入式 banner 詢問「還原 / 捨棄」。banner 只能由明示操作清除；autosave 不會對空白表單寫入，所以全新使用者不會看到。
+新增一個 `primary` 來源（逐列處理的資料）與任意數量的 `lookup` 來源，各自設定 alias、role 與檔案上傳，並偵測 header row。每個來源加入後即可 inline 預覽內容。
 
-### 3. 批次轉換 — 上傳 JSON 設定
+### 3. Joins
+
+![Setup Wizard — 步驟 3：Joins](docs/ss/Wizard-Step03.png)
+
+只有多個來源檔時才需要：指定每對檔案中代表同一件事的欄位（例如 `primary.SKU = source_2.貨號`）與 join 方向（`left`）。每個需要對應的 lookup 來源各加一筆 join。
+
+### 4. Mappings
+
+![Setup Wizard — 步驟 4：Mappings](docs/ss/Wizard-Step04.png)
+
+每列對應一個輸出欄位：選擇其值來自來源欄位、固定儲存格或固定值，並可加條件與預設值。尚未完成或無效的列會標紅，直到每筆 mapping 都指向一個來源為止。
+
+### 5. Save
+
+![Setup Wizard — 步驟 5：Save](docs/ss/Wizard-Step05.png)
+
+最後一步彙整目標範本、來源、joins 與 mappings，方便在送出前抓錯（每區塊都有 Edit 連結可跳回該步驟）。輸入 project name 後按 Save & Download 即可儲存 config 並取得 `{name}.json` 檔。
+
+### 6. 批次轉換 — 上傳 JSON 設定
 
 ![批次轉換 — 上傳 JSON config](docs/ss/excelTemplateParser-uploadConfigFile.png)
 
 若 config 不在伺服器上已儲存清單裡，直接上傳 `{name}.json` 檔。表單解析 JSON 後依 source alias 動態展開 upload slot，並在每個 slot 下方顯示上次上傳的檔名提示。
 
-### 4. 選既有設定 + 即時進度
+### 7. 選既有設定 + 即時進度
 
 ![批次轉換 — 選既有設定 + SSE 進度](docs/ss/excelTemplateParser-loadFromRedisAndCheckNotify.png)
 
 對已儲存到伺服器的 config（從「專案設定 → 儲存」），下拉選單列出名稱（從 Redis / `/data/configs/` 載入）。subtask 級進度透過 SSE 即時推送；上方徽章記錄進行中任務、跨重整不丟；右欄從 localStorage 取近期任務，任何過往任務都能回去看。
 
-### 5. 任務詳情頁
-
-![任務詳情 — 各 subtask 狀態 + 下載](docs/ss/excelTemplateParser-downloadDetails.png)
-
-穩定 URL `/jobs/:id` 可分享。顯示每個 subtask 狀態、失敗訊息附 `request_id`（直接 grep server log 找 traceback）、進行中任務的 Cancel 按鈕、以及串流回傳 ZIP 的 Download 按鈕（支援 HTTP Range / resume）。
-
-### 6. 結果 ZIP
-
-![結果 ZIP — output xlsx + _summary.txt](docs/ss/excelTemplateParser-downloadedZIPFile.png)
-
-ZIP 內每個 primary 輸入對應一份 xlsx（`{原始檔名}.out.xlsx`，樣式從目標範本保留），另含 `_summary.txt`——任務清單檔，逐項列出每個 subtask 的狀態、耗時與錯誤訊息。批次跑幾十個檔案時、這份 summary 就是稽核軌跡。
+任務詳情頁與結果 ZIP 兩條路徑相同，見 [docs/walkthrough-workbench.zh-TW.md](docs/walkthrough-workbench.zh-TW.md) §5–6。
 
 ---
 

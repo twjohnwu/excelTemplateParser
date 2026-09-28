@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-28
+
+Setup Wizard and large-file release. A guided five-step wizard becomes the default page, xlsx
+reading moves to python-calamine with an openpyxl switch, a streaming-join correctness bug is
+fixed, and the 1M-row benchmark drops from 7 minutes to under 2.
+
+### Added
+
+- Setup Wizard at `/wizard` — a five-step guided flow (Template → Sources → Joins → Mappings → Save) that shares `configForm.ts` (`toConfig`, draft read/write) with the three-pane workbench; `/` now lands on it and `/configs/wizard` redirects to it. The draft banner shows a summary before Restore and each missing file shows a re-upload hint afterwards.
+- `XLSX_READER` setting: `calamine` (default, python-calamine) or `openpyxl` (legacy cell semantics). See docs/setup.md.
+- `benchmarks/01_product_pricing_1m/`: 1M-row generator and an in-process runner for load testing.
+
+### Changed
+
+- Read xlsx with python-calamine and build write_only rows per chunk instead of `iterrows`: the 1M-row × 3-lookup benchmark drops from 7 min 09 s to 1 min 53 s (2019 Intel i9). Peak RSS rises from 1.4 GB to ~2 GB because calamine loads the sheet in Rust.
+- Raise default `MAX_UPLOAD_MB` 50 → 200 and `JOB_TIMEOUT_MIN` 10 → 30 so a 1M-row primary with three lookups (~78 MB) runs without overrides.
+- README walkthrough now leads with the wizard; the workbench walkthrough moved to docs/walkthrough-workbench.md.
+
+### Fixed
+
+- Streaming the primary with an `outer`/`right` join re-ran the merge per 10k-row chunk, re-emitting every unmatched lookup row with a blank key once per chunk (a 1M-row run would have produced ~198M rows). Such configs now take the full-load path (`_primary_is_join_base`).
+
 ## [0.2.0] - 2026-09-04
 
 Crash-safety and operability release. Every persistent write is now atomic, recovery reconciles
@@ -119,5 +141,7 @@ Initial public release. Single-machine Docker deployment, no login required.
   case study, plus the full OpenSpec proposal / design / tasks / spec
   under `docs/`.
 
-[Unreleased]: https://github.com/twjohnwu/excelTemplateParser/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/twjohnwu/excelTemplateParser/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/twjohnwu/excelTemplateParser/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/twjohnwu/excelTemplateParser/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/twjohnwu/excelTemplateParser/releases/tag/v0.1.0

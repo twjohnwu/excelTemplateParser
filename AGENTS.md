@@ -4,12 +4,12 @@ ERP Excel batch conversion tool. Single-machine intranet deployment via `docker 
 
 ## Architecture
 
-- **Backend** (`backend/`): Python 3.12 + FastAPI + openpyxl + pandas + RQ
+- **Backend** (`backend/`): Python 3.12 + FastAPI + python-calamine/openpyxl (read, `XLSX_READER`) + openpyxl (write) + pandas + RQ
 - **Frontend** (`frontend/`): React 18 + Vite + TypeScript + shadcn/ui + zod + TanStack Query
 - **Storage**: Redis (AOF persistence) + filesystem (`/data/` as source of truth)
 - **Worker**: RQ background worker; one subtask per primary source file
 
-See `docs/spec/` for full design docs (proposal / design / tasks / spec). For known pitfalls discovered post-launch (schema null serialization, broadcast semantics, source_cell pipeline forking, draft autosave races) and the 2026-07 UX overhaul decisions (wizard rejection, stateless preview, layout-height lessons), scan `docs/decisions_log.md` Parts 2–3 before adding similar features.
+See `docs/spec/` for full design docs (proposal / design / tasks / spec). For known pitfalls discovered post-launch (schema null serialization, broadcast semantics, source_cell pipeline forking, draft autosave races) and the 2026-07 UX overhaul decisions (wizard rejection, stateless preview, layout-height lessons), scan `docs/decisions_log.md` Parts 2–3 before adding similar features; Part 5 records why the wizard was later added as a second surface, Parts 6–7 the streaming-join fix and the calamine/openpyxl reader switch.
 
 ## Layout
 
@@ -29,11 +29,11 @@ backend/
   Dockerfile
 frontend/
   src/
-    pages/             # ConfigBuilder, BatchRunner, JobDetail
-    features/          # config-builder/{SourcesTree,JoinsEditor,MappingsList,MappingRow,ChecklistRail,PreviewDialog}, batch-runner/{NewBatchForm,JobsList}
+    pages/             # WizardPage (/wizard, default), ConfigBuilder, BatchRunner, JobDetail
+    features/          # config-builder/{SourcesTree,JoinsEditor,MappingsList,MappingRow,ChecklistRail,PreviewDialog}, batch-runner/{NewBatchForm,JobsList}, config-wizard/{WizardStepShell,WizardSummary,wizardCopy}
     components/        # TopMenuBar, JobsPanel, FileDropzone, SheetHeaderPicker, ConditionChip, ui/*
     hooks/             # useConfigs, useJobSnapshot, useDebounce, usePreviewConfig
-    lib/               # schemas.ts (zod ConfigSchema — mirror of backend), api.ts, recentJobs.ts, configHelpers/previewHelpers/issueHelpers.ts, i18nGuard.test.ts
+    lib/               # schemas.ts (zod ConfigSchema — mirror of backend), api.ts, configForm.ts (shared toConfig / draft read-write for both surfaces), recentJobs.ts, configHelpers/previewHelpers/issueHelpers.ts, i18nGuard.test.ts
     i18n/              # zh-TW.json, en.json, index.ts
     theme/             # ThemeProvider.tsx, ThemeProvider.test.tsx
   Dockerfile
@@ -56,18 +56,25 @@ docker-compose.yml
 ### With Docker (recommended)
 
 ```bash
-bash scripts/up.sh        # builds frontend bundle locally, then `docker compose up -d`
+bash scripts/up.sh        # Docker-only: `docker compose up -d` builds the frontend image itself
 # UI:   http://localhost:5173
 # API:  http://localhost:8000
 ```
 
-The frontend image is a slim `nginx:alpine` that serves a pre-built `frontend/dist/`. `scripts/up.sh` rebuilds `dist/` whenever `src/` is newer (or `dist/` is missing), then brings up all four services.
+By default the frontend image is built by Docker via `frontend/Dockerfile`'s multi-stage
+build (Node build stage → `nginx:alpine` runtime) — no Node needed on the host.
+`scripts/up.sh --dev` (needs Node) layers `docker-compose.dev.yml` on top, which restores
+the old bind-mounted fast path: a host-run `npm run build` is picked up on the next browser
+refresh with no image rebuild. `scripts/up.sh --host-build` (needs Node) is the escape
+hatch for when the Node base image pull fails — see `docs/setup.md`.
 
 ### Restart matrix
 
 ```
-backend change   → docker compose restart api worker     # bind-mounted, no rebuild needed
-frontend change  → cd frontend && npm run build && docker compose up -d --force-recreate frontend
+backend change   → docker compose restart api worker                       # bind-mounted, no rebuild needed
+frontend change  → docker compose up -d --build frontend                   # default (no bind mount): rebuild the image
+                    # or, under --dev (docker-compose.dev.yml):
+                    # cd frontend && npm run build && docker compose up -d --force-recreate frontend
 schema change    → restart both (backend rebuild caches, frontend rebuild bundle)
 ```
 
@@ -106,7 +113,7 @@ npm run e2e   # Playwright, needs the docker stack up
 | Change | Don't forget |
 |---|---|
 | Add a mapping field | Both `backend/app/schemas.py` and `frontend/src/lib/schemas.ts` (xor + cross-field check); mapper if it changes pipeline shape; UI in `MappingRow.tsx` (mode toggle + collapsed-row rendering) |
-| Add a config field | Schema both ends; ConfigBuilder `toConfig` / `restoreDraft` / `EMPTY_PERSISTABLE_JSON`; preflight required-column collection in `api/jobs.py::_collect_required_columns` if relevant |
+| Add a config field | Schema both ends; shared `frontend/src/lib/configForm.ts` `toConfig` / `readDraft` per-field defaulting / `EMPTY_PERSISTABLE_JSON` (both `ConfigBuilder` and `WizardPage` consume this module, so no per-surface change needed); preflight required-column collection in `api/jobs.py::_collect_required_columns` if relevant |
 | Add a worker stage | Re-evaluate `df_needed_aliases` — a new stage may need its own "needed-by-stage" alias set; mirror the filter in `_run_preflight` |
 | Add an autosave / autoload | Define behavior at three boundaries: empty input / mount tick / storage cleanup. Never let an auto behavior mutate user data without explicit consent |
 | Add hardcoded UI color | Pair with explicit `text-*` + `dark:*` variants; cross-check `MappingRow.tsx` for the canonical pattern |
@@ -122,9 +129,10 @@ npm run e2e   # Playwright, needs the docker stack up
 |---|---|---|
 | `REDIS_URL` | `redis://redis:6379/0` | Redis connection |
 | `DATA_DIR` | `./data` | Filesystem root for configs and jobs |
-| `MAX_UPLOAD_MB` | `50` | Per-file upload limit |
+| `MAX_UPLOAD_MB` | `200` | Per-file upload limit |
 | `RQ_WORKERS` | `4` | Worker concurrency |
-| `JOB_TIMEOUT_MIN` | `10` | Per-subtask timeout |
+| `JOB_TIMEOUT_MIN` | `30` | Per-subtask timeout |
 | `DOWNLOAD_GRACE_MINUTES` | `60` | ZIP re-download grace window |
 | `JOB_RETENTION_HOURS` | `24` | Sweep undownloaded jobs after N hours |
 | `LOG_LEVEL` | `INFO` | structlog level |
+| `XLSX_READER` | `calamine` | xlsx reader backend; `openpyxl` keeps exact legacy cell semantics (error cells, whitespace-only strings, dimension-only trailing columns) |

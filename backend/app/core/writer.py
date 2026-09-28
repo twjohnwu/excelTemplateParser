@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from zipfile import BadZipFile
 
@@ -159,22 +160,50 @@ def _write_fast(
                 out_row[tmpl_width + k] = name
         ws.append(out_row)
 
+    positions = [name_to_pos.get(col_name, new_pos.get(col_name)) for col_name in columns]
     for chunk in chunks:
-        for _, row in chunk.iterrows():
+        for values in _chunk_rows(chunk, columns):
             out_row = [None] * out_width
-            for col_name in columns:
-                value = row[col_name]
-                if pd.isna(value):
-                    value = None
-                pos = name_to_pos.get(col_name)
-                if pos is None:
-                    pos = new_pos[col_name]
+            for pos, value in zip(positions, values):
                 out_row[pos] = value
             ws.append(out_row)
 
     dst.parent.mkdir(parents=True, exist_ok=True)
     with atomic_path(dst) as tmp:
         wb.save(str(tmp))
+
+
+def _chunk_rows(chunk: pd.DataFrame, columns: list[str]) -> list[list[object]]:
+    """Vectorised equivalent of ``[[None if pd.isna(row[c]) else row[c] for c in
+    columns] for _, row in chunk.iterrows()]`` — same values, same per-cell types
+    (pandas' row-wise dtype coercion in ``iterrows()`` is value-independent, driven
+    only by the chunk's column dtypes, so it can be replicated once per chunk
+    instead of once per row).
+    """
+    if not columns:
+        return [[] for _ in range(len(chunk))]
+    sub = chunk.reindex(columns=columns)
+    if sub.empty:
+        return []
+
+    mask = sub.isna().to_numpy()
+    arr = sub.to_numpy()  # dtype mirrors what a per-row `chunk.iloc[i]` would use
+    if arr.dtype == object or np.issubdtype(arr.dtype, np.datetime64):
+        # Object/datetime rows box each cell (e.g. Timestamp) the same way
+        # `.astype(object)` does; plain `.tolist()` on an already-object array is a
+        # pass-through, so this matches `iterrows()` cell-for-cell.
+        rows = sub.astype(object).to_numpy().tolist()
+    else:
+        # Homogeneous numeric/bool rows: `iterrows()` yields numpy scalars of the
+        # unified dtype, not native Python ones — `.tolist()` would convert them,
+        # so index the array directly instead.
+        rows = [list(arr[i]) for i in range(len(arr))]
+
+    for row, row_mask in zip(rows, mask):
+        for j, is_na in enumerate(row_mask):
+            if is_na:
+                row[j] = None
+    return rows
 
 
 def _read_template_head(

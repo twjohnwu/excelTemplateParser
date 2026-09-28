@@ -4,7 +4,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
@@ -22,7 +22,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { SourcesTree, type SourceEntry } from "@/features/config-builder/SourcesTree";
+import { SourcesTree } from "@/features/config-builder/SourcesTree";
 import { JoinsEditor } from "@/features/config-builder/JoinsEditor";
 import { MappingsList } from "@/features/config-builder/MappingsList";
 import { ChecklistRail } from "@/features/config-builder/ChecklistRail";
@@ -37,10 +37,23 @@ import {
   type StepId,
 } from "@/lib/previewHelpers";
 import { bucketIssues, humanizeIssue } from "@/lib/issueHelpers";
-import { configSchema, type Config, type JoinRule, type Mapping } from "@/lib/schemas";
+import type { Config, Mapping } from "@/lib/schemas";
 import { z } from "zod";
+import {
+  DRAFT_KEY,
+  type FormState,
+  emptyState,
+  toPersistable,
+  isPristineState,
+  toConfig,
+  formatSaveError,
+  readDraft,
+  writeDraft,
+  draftWriterLabel,
+  DEFAULT_SAVE_ERROR_KEY,
+} from "@/lib/configForm";
+import type { DraftReadResult } from "@/lib/configForm";
 
-const DRAFT_KEY = "etp.configDraft.v1";
 const DEBOUNCE_MS = 1000;
 const VALIDATE_DEBOUNCE_MS = 500;
 
@@ -52,89 +65,6 @@ const STEP_SCROLL_TARGETS: Record<StepId, string> = {
   mappings: "pane-mappings",
   save: "cfg-toolbar",
 };
-
-type FormState = {
-  name: string;
-  target: {
-    file: File | null;
-    sheet: string;
-    header_row: number;
-    columns: string[];
-    sample_filename?: string;
-  };
-  sources: SourceEntry[];
-  joins: JoinRule[];
-  mappings: Mapping[];
-};
-
-const emptyState = (): FormState => ({
-  name: "",
-  target: { file: null, sheet: "", header_row: 1, columns: [] },
-  sources: [
-    { alias: "primary", role: "primary", file: null, sheet: "", header_row: 1, columns: [] },
-  ],
-  joins: [],
-  mappings: [],
-});
-
-// File objects can't be JSON-serialized; strip them via undefined (which
-// JSON.stringify omits) for both autosave and the empty-state comparison.
-function toPersistable(s: FormState) {
-  return {
-    ...s,
-    target: { ...s.target, file: undefined },
-    sources: s.sources.map((src) => ({ ...src, file: undefined })),
-  };
-}
-
-// Pre-computed "this state matches emptyState" sentinel — autosave compares
-// against this to avoid persisting a draft when the form was never touched
-// (emptyState contains a default primary source, so a naive non-empty check
-// gives false positives).
-const EMPTY_PERSISTABLE_JSON = JSON.stringify(toPersistable(emptyState()));
-
-/** Returns true when the form has never been touched: no name, no file,
- * no non-default columns, no joins, no mappings content. Reuses the same
- * EMPTY_PERSISTABLE_JSON sentinel so the definition stays in one place. */
-export function isPristineState(s: FormState): boolean {
-  return JSON.stringify(toPersistable(s)) === EMPTY_PERSISTABLE_JSON;
-}
-
-type ToConfigResult =
-  | { ok: true; config: Config }
-  | { ok: false; issues: z.ZodIssue[] };
-
-function toConfig(state: FormState): ToConfigResult {
-  // target_template.columns is the writer's column order. Drive it from
-  // mappings so user-added rows (targets not present in the template xlsx)
-  // become real output columns instead of being silently dropped.
-  const mappingTargets = state.mappings.map((m) => m.target).filter(Boolean);
-  const templateCols = state.target.columns.filter(Boolean);
-  const orphanTemplateCols = templateCols.filter((c) => !mappingTargets.includes(c));
-  const columns = [...mappingTargets, ...orphanTemplateCols];
-
-  const result = configSchema.safeParse({
-    name: state.name,
-    target_template: {
-      sheet: state.target.sheet,
-      header_row: state.target.header_row,
-      preserve_styles: true,
-      columns,
-      sample_filename: state.target.file?.name ?? state.target.sample_filename,
-    },
-    sources: state.sources.map((s) => ({
-      alias: s.alias,
-      role: s.role,
-      sheet: s.sheet,
-      header_row: s.header_row,
-      sample_filename: s.file?.name ?? s.sample_filename,
-    })),
-    joins: state.joins,
-    mappings: state.mappings,
-  });
-  if (result.success) return { ok: true, config: result.data };
-  return { ok: false, issues: result.error.issues };
-}
 
 function formatIssues(
   issues: z.ZodIssue[],
@@ -150,7 +80,7 @@ function formatIssues(
         const msg = t(h.messageKey, h.messageParams);
         return (
           <li key={idx}>
-            {label ? `${label}：${msg}` : msg}
+            {label ? t("issue.labelWithMessage", { label, message: msg }) : msg}
           </li>
         );
       })}
@@ -162,6 +92,7 @@ import { inferColumnsFromConfig, mergeMappingsWithColumns } from "@/lib/configHe
 
 export function ConfigBuilder() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const loadName = params.get("config") ?? undefined;
 
@@ -216,13 +147,16 @@ export function ConfigBuilder() {
 
   // Snapshot the draft at mount time so the debounced autosave (which writes
   // emptyState ~1s after mount) can't clobber what we restore from.
-  const draftSnapshotRef = useRef<string | null>(null);
+  const draftSnapshotRef = useRef<DraftReadResult | null>(null);
 
-  // On first mount: detect draft, capture snapshot, prompt user.
+  // On first mount: detect draft, capture snapshot, prompt user. Both
+  // ok: true and ok: false (malformed) results count as "there is a draft" —
+  // this is the reader-side complementary protection, not the anti-clobber
+  // invariant itself (that lives inside writeDraft()).
   useEffect(() => {
-    const draft = localStorage.getItem(DRAFT_KEY);
-    if (draft && !loadName) {
-      draftSnapshotRef.current = draft;
+    const result = readDraft();
+    if (result && !loadName) {
+      draftSnapshotRef.current = result;
       setDraftFound(true);
     }
   }, [loadName]);
@@ -264,18 +198,25 @@ export function ConfigBuilder() {
     });
   }, [existing]);
 
-  // Debounced draft autosave. Empty state is a no-op (don't write, don't
-  // delete) so a fresh mount can't clobber an existing draft. Only explicit
-  // user actions (discardDraft / handleSave) remove the stored draft.
+  // Debounced draft autosave. writeDraft() itself is a no-op for a pristine
+  // state (don't write, don't delete) so a fresh mount can't clobber an
+  // existing draft. Only explicit user actions (discardDraft / handleSave)
+  // remove the stored draft.
+  //
+  // The handle is also kept in a ref (not just the effect-local `handle`) so
+  // a successful save (handleSave, below) can cancel whichever timer is
+  // still outstanding — a save changes no `state`, so the effect above won't
+  // re-run and its own cleanup won't fire; without this ref the
+  // already-scheduled write would fire after the save and resurrect the
+  // draft it just cleared. Same fix as WizardPage.tsx:186-194.
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    const handle = setTimeout(() => {
-      const json = JSON.stringify(toPersistable(state));
-      if (json === EMPTY_PERSISTABLE_JSON) return;
-      try {
-        localStorage.setItem(DRAFT_KEY, json);
-      } catch {/* quota */}
+    autosaveTimerRef.current = setTimeout(() => {
+      writeDraft(state, "workbench");
     }, DEBOUNCE_MS);
-    return () => clearTimeout(handle);
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
   }, [state]);
 
   // Any state mutation dismisses the onboarding card for the rest of this session.
@@ -284,25 +225,23 @@ export function ConfigBuilder() {
     setState(value);
   };
 
+  // S-14: which surface wrote the stored draft, for the restore banner. A
+  // draft with no `_draftMeta` (written before this feature existed, or by
+  // an older build) has no recoverable writer — show the same
+  // "writerUnknown" fallback the malformed-draft case gets, rather than
+  // guessing or rendering a raw i18n key.
+  const draftWriterKey = () => {
+    const result = draftSnapshotRef.current;
+    if (result?.ok && result.meta) return draftWriterLabel(result.meta.writer);
+    return "wizard.draftRestore.writerUnknown";
+  };
+
+  // Only reachable for an ok:true snapshot — the malformed-draft banner
+  // (below) offers no Restore control, since there is nothing to restore.
   const restoreDraft = () => {
-    const raw = draftSnapshotRef.current;
-    if (!raw) return;
-    try {
-      const parsed = JSON.parse(raw);
-      setState({
-        name: parsed.name ?? "",
-        target: {
-          file: null,
-          sheet: parsed.target?.sheet ?? "",
-          header_row: parsed.target?.header_row ?? 1,
-          columns: parsed.target?.columns ?? [],
-          sample_filename: parsed.target?.sample_filename,
-        },
-        sources: (parsed.sources ?? []).map((s: any) => ({ ...s, file: null })),
-        joins: parsed.joins ?? [],
-        mappings: parsed.mappings ?? [],
-      });
-    } catch {}
+    const result = draftSnapshotRef.current;
+    if (!result || !result.ok) return;
+    setState(result.state);
     setDraftFound(false);
     draftSnapshotRef.current = null;
   };
@@ -323,6 +262,9 @@ export function ConfigBuilder() {
     const cfg = result.config;
     try {
       await save.mutateAsync({ config: cfg, overwrite });
+      // Cancel whichever autosave write is still pending (see the ref's
+      // comment above) before clearing the draft, so it can't resurrect it.
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
       localStorage.removeItem(DRAFT_KEY);
       downloadJson(cfg);
     } catch (e) {
@@ -330,7 +272,8 @@ export function ConfigBuilder() {
         setPendingOverwrite(cfg);
         return;
       }
-      setSaveError(e instanceof Error ? e.message : String(e));
+      const formatted = formatSaveError(e instanceof Error ? e.message : String(e));
+      setSaveError(formatted === DEFAULT_SAVE_ERROR_KEY ? t(DEFAULT_SAVE_ERROR_KEY) : formatted);
     }
   };
 
@@ -367,7 +310,7 @@ export function ConfigBuilder() {
       setPreviewOpen(true);
     } catch (e) {
       if (e instanceof ApiError) {
-        const idSuffix = e.requestId ? `（${t("errors.requestId", { id: e.requestId })}）` : "";
+        const idSuffix = e.requestId ? t("errors.requestIdSuffix", { id: e.requestId }) : "";
         setPreviewError(`${e.message || t("errors.generic")}${idSuffix}`);
       } else {
         setPreviewError(e instanceof Error ? e.message : String(e));
@@ -456,9 +399,12 @@ export function ConfigBuilder() {
         </DialogContent>
       </Dialog>
 
-      {draftFound && (
+      {draftFound && draftSnapshotRef.current?.ok && (
         <div className="rounded-md border bg-yellow-50 px-3 py-2 text-sm dark:bg-yellow-950/40">
           {t("config.draftRestorePrompt")}
+          <span className="ml-1 text-muted-foreground">
+            {t("config.draftRestoreWriter", { writer: t(draftWriterKey()) })}
+          </span>
           <Button size="sm" variant="ghost" className="ml-2" onClick={restoreDraft}>
             {t("config.draftRestore")}
           </Button>
@@ -467,8 +413,24 @@ export function ConfigBuilder() {
           </Button>
         </div>
       )}
+      {draftFound && draftSnapshotRef.current?.ok === false && (
+        <div className="rounded-md border bg-yellow-50 px-3 py-2 text-sm dark:bg-yellow-950/40">
+          {t("config.draftUnreadable")}
+          <Button size="sm" variant="ghost" className="ml-2" onClick={discardDraft}>
+            {t("config.draftDiscard")}
+          </Button>
+        </div>
+      )}
 
       <div id="cfg-toolbar" className="flex flex-wrap items-end gap-2">
+        {/* Locks the name field while a save is in flight (Fix 2) so an
+            edit made in that window can't schedule an autosave the success
+            path then cancels (silently losing the edit). Navigation (rail,
+            load-existing, delete/preview/download) stays OUTSIDE this
+            fieldset — only editable config fields lock, same scope as
+            WizardPage.tsx's equivalent fieldset. `contents` keeps this
+            wrapper out of the toolbar's flex layout. */}
+        <fieldset disabled={save.isPending} className="contents border-0 p-0 m-0">
         <div>
           <Label htmlFor="cfg-name">{t("config.name")}</Label>
           <Input
@@ -484,6 +446,7 @@ export function ConfigBuilder() {
             </p>
           ))}
         </div>
+        </fieldset>
         <div className="flex items-end gap-1">
           <div>
             <Label>{t("config.loadExisting")}</Label>
@@ -550,20 +513,29 @@ export function ConfigBuilder() {
                   {t("config.onboarding.step3")}
                 </li>
               </ol>
-              <Button
-                onClick={() => {
-                  setShowOnboarding(false);
-                  document
-                    .getElementById(STEP_SCROLL_TARGETS.target)
-                    ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-                }}
-              >
+              <Button onClick={() => navigate("/wizard")}>
                 {t("config.onboarding.cta")}
               </Button>
+              <div>
+                <Button
+                  variant="link"
+                  onClick={() => {
+                    setShowOnboarding(false);
+                    document
+                      .getElementById(STEP_SCROLL_TARGETS.target)
+                      ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                  }}
+                >
+                  {t("config.onboarding.stayHere")}
+                </Button>
+              </div>
             </div>
           </div>
         ) : (
-        <div className="grid min-w-0 flex-1 gap-3 lg:grid-cols-[minmax(300px,1fr)_minmax(260px,1fr)_minmax(360px,1.4fr)] md:grid-cols-2">
+        <fieldset
+          disabled={save.isPending}
+          className="grid min-w-0 flex-1 gap-3 lg:grid-cols-[minmax(300px,1fr)_minmax(260px,1fr)_minmax(360px,1.4fr)] md:grid-cols-2 border-0 p-0 m-0"
+        >
         <SourcesTree
           id="pane-sources"
           targetErrorCount={issueCounts.target}
@@ -585,6 +557,7 @@ export function ConfigBuilder() {
           }
           sources={state.sources}
           onSourcesChange={(sources) => setStateAndDismissOnboarding({ ...state, sources })}
+          disabled={save.isPending}
         />
         <JoinsEditor
           id="pane-joins"
@@ -603,7 +576,7 @@ export function ConfigBuilder() {
           targetColumns={state.target.columns}
           onChange={(mappings) => setStateAndDismissOnboarding({ ...state, mappings })}
         />
-        </div>
+        </fieldset>
         )}
       </div>
 
